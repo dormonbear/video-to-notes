@@ -4,8 +4,8 @@ import "testing"
 
 func TestLoadValidatesRequiredFields(t *testing.T) {
 	env := map[string]string{
-		"GEMINI_API_KEY": "key",
-		"VAULT_PATH":     "/v",
+		"OPENROUTER_API_KEY": "key",
+		"VAULT_PATH":         "/v",
 	} // 缺 TELEGRAM_BOT_TOKEN
 	_, err := loadFrom(env)
 	if err == nil {
@@ -16,15 +16,18 @@ func TestLoadValidatesRequiredFields(t *testing.T) {
 func TestLoadAppliesDefaults(t *testing.T) {
 	env := map[string]string{
 		"TELEGRAM_BOT_TOKEN": "tok",
-		"GEMINI_API_KEY":     "key",
+		"OPENROUTER_API_KEY": "key",
 		"VAULT_PATH":         "/v",
 	}
 	c, err := loadFrom(env)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if c.Model != "gemini-2.5-flash" {
-		t.Errorf("Model default = %q, want gemini-2.5-flash", c.Model)
+	if c.Model != "google/gemini-2.5-flash" {
+		t.Errorf("Model default = %q, want google/gemini-2.5-flash", c.Model)
+	}
+	if c.Proxy != "http://127.0.0.1:7897" {
+		t.Errorf("Proxy default = %q, want http://127.0.0.1:7897", c.Proxy)
 	}
 	if c.NoteSubdir != "video-notes" {
 		t.Errorf("NoteSubdir default = %q, want video-notes", c.NoteSubdir)

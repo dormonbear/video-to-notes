@@ -13,13 +13,13 @@ import (
 
 	"video-to-notes/internal/config"
 	"video-to-notes/internal/douyin"
-	"video-to-notes/internal/gemini"
+	"video-to-notes/internal/llm"
 	"video-to-notes/internal/note"
 )
 
 type app struct {
 	cfg config.Config
-	gem *gemini.Client
+	gem *llm.Client
 }
 
 func main() {
@@ -31,9 +31,9 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	gem, err := gemini.New(ctx, cfg.GeminiAPIKey, cfg.Model)
+	gem, err := llm.New(cfg.OpenRouterKey, cfg.Model, cfg.Proxy)
 	if err != nil {
-		log.Fatalf("gemini: %v", err)
+		log.Fatalf("llm: %v", err)
 	}
 	a := &app{cfg: cfg, gem: gem}
 
