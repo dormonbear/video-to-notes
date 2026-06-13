@@ -133,3 +133,16 @@ tags: [agent, 面试, 大模型]
 - 不自己实现抖音签名解析（交给 yt-dlp）
 - 不做画面逐帧描述（用户未选；Gemini 仍会看画面辅助理解音频内容）
 - 暂不上云常驻（先本机跑通；CLAUDE.md 已记录可后续迁移）
+
+---
+
+## 2026-06-14 架构修订（OpenRouter + 代理）
+
+实现阶段用户提供的是 **OpenRouter key**（非 Google AI Studio key），且本机区域对 Google/OpenAI 直连被封锁。修订如下：
+
+- **LLM 接入改为 OpenRouter**（OpenAI 兼容 `/api/v1/chat/completions`），`internal/gemini`（genai SDK + File API）整包替换为 `internal/llm`（`net/http` + base64 视频 `video_url`）。视频以 base64 data URL 内联传输（Gemini 内联上限 ~20MB；默认下载的 720p ~15MB → base64 ~20.5MB，实测 Gemini 可接受）。
+- **结构化输出**改用 OpenRouter `response_format: json_schema`（字段同 `note.Data`）。
+- **模型可配置**（`MODEL` 环境变量）：默认 `google/gemini-2.5-flash`（质量最好，需代理）；备选 `z-ai/glm-4.6v`（国内直连可用，已实测出高质量中文笔记）。Qwen 系列受 20MB data-uri 上限限制，不用。
+- **代理**：Clash Verge 已加规则 `DOMAIN-SUFFIX,openrouter.ai,AI`（持久化于 profile override `rseHuCoJJBmU.yaml`，并热重载生效）。因 TUN 关闭，bot 通过 `OPENROUTER_PROXY=http://127.0.0.1:7897`（Go `http.Transport.Proxy`）显式走 Clash。用 GLM 直连时设 `OPENROUTER_PROXY=direct`。
+- **config 变更**：`GEMINI_API_KEY`→`OPENROUTER_API_KEY`，`GEMINI_MODEL`→`MODEL`，新增 `OPENROUTER_PROXY`。
+- **已验证**：yt-dlp 下载✅；Gemini 经代理处理真实视频→完整结构化笔记✅；bot 连 Telegram long-polling✅。每篇笔记成本 ~$0.02–0.04。
