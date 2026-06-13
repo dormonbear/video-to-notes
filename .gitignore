@@ -1,0 +1,4 @@
+.env
+/video-to-notes
+/tmp/
+*.mp4
