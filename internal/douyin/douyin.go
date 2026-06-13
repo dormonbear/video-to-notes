@@ -40,7 +40,7 @@ func Download(shareText, destDir string) (string, Meta, error) {
 	outTmpl := filepath.Join(destDir, "%(id)s.%(ext)s")
 
 	var stdout bytes.Buffer
-	cmd := exec.Command("yt-dlp", "--no-progress", "--print-json", "-o", outTmpl, url)
+	cmd := exec.Command("yt-dlp", "--no-playlist", "--no-progress", "--print-json", "-o", outTmpl, url)
 	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

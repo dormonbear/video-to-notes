@@ -48,6 +48,9 @@ func noteSchema() *genai.Schema {
 
 // Analyze 上传视频文件，等待处理完成，调用模型返回结构化笔记内容。
 func (c *Client) Analyze(ctx context.Context, videoPath string) (note.Data, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	f, err := os.Open(videoPath)
 	if err != nil {
 		return note.Data{}, fmt.Errorf("open video: %w", err)
@@ -58,6 +61,7 @@ func (c *Client) Analyze(ctx context.Context, videoPath string) (note.Data, erro
 	if err != nil {
 		return note.Data{}, fmt.Errorf("upload: %w", err)
 	}
+	defer c.gc.Files.Delete(ctx, uploaded.Name, nil) //nolint:errcheck
 
 	// 轮询直到 ACTIVE。
 	for uploaded.State == genai.FileStateProcessing {

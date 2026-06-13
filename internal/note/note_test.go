@@ -24,12 +24,26 @@ func TestRenderContainsAllSections(t *testing.T) {
 		},
 	})
 	for _, want := range []string{
-		"source: https://v.douyin.com/x/", "author: 作者",
-		"tags: [a, b]", "## 一句话摘要", "一句话",
+		`source: "https://v.douyin.com/x/"`, `author: "作者"`,
+		`tags: ["a", "b"]`, "## 一句话摘要", "一句话",
 		"## 核心要点", "- p1", "## 完整转写", "全文",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("render output missing %q\n---\n%s", want, md)
 		}
+	}
+}
+
+func TestRenderEscapesUnsafeFrontmatter(t *testing.T) {
+	md := render(Input{
+		Title:     "踩过的坑 #agent: 第一行\n第二行",
+		Author:    "作者",
+		SourceURL: "https://v.douyin.com/x/",
+		Date:      "2026-06-13",
+		Data:      Data{Summary: "s", Tags: []string{"a"}, KeyPoints: []string{"p"}, Transcript: "t"},
+	})
+	// The title line must be a single quoted scalar with no raw newline and no comment truncation.
+	if !strings.Contains(md, `title: "踩过的坑 #agent: 第一行 第二行"`) {
+		t.Errorf("title not safely quoted/escaped:\n%s", md)
 	}
 }

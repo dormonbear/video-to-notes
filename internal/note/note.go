@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +30,12 @@ var unsafe = strings.NewReplacer(
 	"?", "_", `"`, "_", "<", "_", ">", "_", "|", "_",
 )
 
+func yamlStr(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strconv.Quote(s)
+}
+
 func safeFilename(s string) string {
 	s = unsafe.Replace(s)
 	s = strings.TrimSpace(s)
@@ -44,11 +51,15 @@ func safeFilename(s string) string {
 func render(in Input) string {
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "source: %s\n", in.SourceURL)
-	fmt.Fprintf(&b, "author: %s\n", in.Author)
-	fmt.Fprintf(&b, "title: %s\n", in.Title)
+	fmt.Fprintf(&b, "source: %s\n", yamlStr(in.SourceURL))
+	fmt.Fprintf(&b, "author: %s\n", yamlStr(in.Author))
+	fmt.Fprintf(&b, "title: %s\n", yamlStr(in.Title))
 	fmt.Fprintf(&b, "date: %s\n", in.Date)
-	fmt.Fprintf(&b, "tags: [%s]\n", strings.Join(in.Data.Tags, ", "))
+	quoted := make([]string, len(in.Data.Tags))
+	for i, t := range in.Data.Tags {
+		quoted[i] = yamlStr(t)
+	}
+	fmt.Fprintf(&b, "tags: [%s]\n", strings.Join(quoted, ", "))
 	b.WriteString("---\n\n")
 
 	b.WriteString("## 一句话摘要\n")

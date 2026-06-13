@@ -54,9 +54,12 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 	chatID := update.Message.Chat.ID
 
-	status, _ := b.SendMessage(ctx, &bot.SendMessageParams{
+	status, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID, Text: "⬇️ 下载视频中…",
 	})
+	if err != nil {
+		log.Printf("send initial status to chat %d: %v", chatID, err)
+	}
 	edit := func(text string) {
 		if status != nil {
 			b.EditMessageText(ctx, &bot.EditMessageTextParams{
