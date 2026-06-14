@@ -27,9 +27,11 @@ func extractURL(s string) string {
 	return urlRe.FindString(s)
 }
 
-// Download 提取分享文本里的抖音链接，用 yt-dlp 下载无水印视频到 destDir。
-// 返回下载好的视频文件路径与元数据。yt-dlp 默认 format 已是无水印 playback 流。
-func Download(shareText, destDir string) (string, Meta, error) {
+// Fetch 提取分享文本里的抖音链接，下载最小体积的无水印视频，再用 ffmpeg 抽取
+// 低码率单声道音频（删掉视频本体），返回音频文件路径与元数据。
+// 只取音频：笔记内容（摘要/要点/转写）都来自语音，且音频远小于视频，可处理长视频
+// 并绕开 OpenRouter 内联 ~20MB 的上限。
+func Fetch(shareText, destDir string) (string, Meta, error) {
 	url := extractURL(shareText)
 	if url == "" {
 		return "", Meta{}, ErrNoURL
@@ -39,8 +41,9 @@ func Download(shareText, destDir string) (string, Meta, error) {
 	}
 	outTmpl := filepath.Join(destDir, "%(id)s.%(ext)s")
 
+	// -S "+size" 优先最小体积的格式，减少下载量。
 	var stdout bytes.Buffer
-	cmd := exec.Command("yt-dlp", "--no-playlist", "--no-progress", "--print-json", "-o", outTmpl, url)
+	cmd := exec.Command("yt-dlp", "--no-playlist", "--no-progress", "-S", "+size", "--print-json", "-o", outTmpl, url)
 	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -55,18 +58,30 @@ func Download(shareText, destDir string) (string, Meta, error) {
 		Uploader   string `json:"uploader"`
 		WebpageURL string `json:"webpage_url"`
 	}
-	// --print-json 输出单行 JSON 到 stdout。
 	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &info); err != nil {
 		return "", Meta{}, fmt.Errorf("parse yt-dlp json: %w", err)
+	}
+
+	videoPath := filepath.Join(destDir, info.ID+"."+info.Ext)
+	if _, err := os.Stat(videoPath); err != nil {
+		return "", Meta{}, fmt.Errorf("downloaded file missing at %s: %w", videoPath, err)
+	}
+	defer os.Remove(videoPath) // 抽完音频就删视频
+
+	audioPath := filepath.Join(destDir, info.ID+".mp3")
+	// 单声道 16kHz 48kbps mp3：语音清晰、体积极小（约 0.36MB/分钟）。
+	ff := exec.Command("ffmpeg", "-y", "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", audioPath)
+	ff.Stderr = os.Stderr
+	if err := ff.Run(); err != nil {
+		return "", Meta{}, fmt.Errorf("ffmpeg extract audio failed: %w", err)
+	}
+	if fi, err := os.Stat(audioPath); err != nil || fi.Size() == 0 {
+		return "", Meta{}, fmt.Errorf("extracted audio missing/empty at %s: %w", audioPath, err)
 	}
 
 	author := info.Channel
 	if author == "" {
 		author = info.Uploader
 	}
-	path := filepath.Join(destDir, info.ID+"."+info.Ext)
-	if _, err := os.Stat(path); err != nil {
-		return "", Meta{}, fmt.Errorf("downloaded file missing at %s: %w", path, err)
-	}
-	return path, Meta{Title: info.Title, Author: author, SourceURL: info.WebpageURL}, nil
+	return audioPath, Meta{Title: info.Title, Author: author, SourceURL: info.WebpageURL}, nil
 }

@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-func TestAnalyzeRealVideo(t *testing.T) {
+func TestAnalyzeRealAudio(t *testing.T) {
 	key := os.Getenv("OPENROUTER_API_KEY")
-	video := os.Getenv("TEST_VIDEO")
-	if key == "" || video == "" {
-		t.Skip("set OPENROUTER_API_KEY and TEST_VIDEO to run")
+	audio := os.Getenv("TEST_AUDIO")
+	if key == "" || audio == "" {
+		t.Skip("set OPENROUTER_API_KEY and TEST_AUDIO (path to an .mp3) to run")
 	}
 	model := os.Getenv("MODEL")
 	if model == "" {
@@ -24,7 +24,7 @@ func TestAnalyzeRealVideo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := c.Analyze(context.Background(), video)
+	d, err := c.Analyze(context.Background(), audio)
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}

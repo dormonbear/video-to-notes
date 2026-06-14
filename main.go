@@ -68,7 +68,7 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 		}
 	}
 
-	videoPath, meta, err := douyin.Download(update.Message.Text, a.cfg.TmpDir)
+	audioPath, meta, err := douyin.Fetch(update.Message.Text, a.cfg.TmpDir)
 	if err == douyin.ErrNoURL {
 		edit("没找到抖音链接，请把分享口令或链接发给我。")
 		return
@@ -77,10 +77,10 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 		edit(fmt.Sprintf("❌ 下载失败：%v", err))
 		return
 	}
-	defer os.Remove(videoPath)
+	defer os.Remove(audioPath)
 
 	edit("🧠 Gemini 分析中…")
-	data, err := a.gem.Analyze(ctx, videoPath)
+	data, err := a.gem.Analyze(ctx, audioPath)
 	if err != nil {
 		edit(fmt.Sprintf("❌ 分析失败：%v", err))
 		return

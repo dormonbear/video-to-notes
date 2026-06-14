@@ -76,13 +76,13 @@ func noteSchema() map[string]any {
 	}
 }
 
-// Analyze base64-encodes the video, sends it to the model and returns structured note data.
-func (c *Client) Analyze(ctx context.Context, videoPath string) (note.Data, error) {
-	raw, err := os.ReadFile(videoPath)
+// Analyze base64-encodes the audio, sends it to the model and returns structured note data.
+func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, error) {
+	raw, err := os.ReadFile(audioPath)
 	if err != nil {
-		return note.Data{}, fmt.Errorf("read video: %w", err)
+		return note.Data{}, fmt.Errorf("read audio: %w", err)
 	}
-	dataURL := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(raw)
+	b64 := base64.StdEncoding.EncodeToString(raw)
 
 	reqBody := map[string]any{
 		"model": c.model,
@@ -91,7 +91,7 @@ func (c *Client) Analyze(ctx context.Context, videoPath string) (note.Data, erro
 				"role": "user",
 				"content": []any{
 					map[string]any{"type": "text", "text": prompt.VideoNote},
-					map[string]any{"type": "video_url", "video_url": map[string]any{"url": dataURL}},
+					map[string]any{"type": "input_audio", "input_audio": map[string]any{"data": b64, "format": "mp3"}},
 				},
 			},
 		},

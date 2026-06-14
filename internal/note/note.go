@@ -38,9 +38,17 @@ func yamlStr(s string) string {
 
 func safeFilename(s string) string {
 	s = unsafe.Replace(s)
-	s = strings.TrimSpace(s)
-	if len(s) > 80 {
-		s = s[:80]
+	// 把换行/制表/控制字符压成空格，避免文件名里出现非法字符。
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' || r < 0x20 {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ") // 折叠多余空白
+	// 按 rune 截断（不能按字节，否则会切断多字节 UTF-8 字符 → 非法字节序列，写文件失败）。
+	if r := []rune(s); len(r) > 60 {
+		s = strings.TrimSpace(string(r[:60]))
 	}
 	if s == "" {
 		s = "untitled"
