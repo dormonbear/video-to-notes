@@ -1,0 +1,19 @@
+[Unit]
+Description=video-to-notes telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/video-to-notes
+# .env 里只放 OPENROUTER_PROXY；不要在这里设全局 HTTP_PROXY/HTTPS_PROXY，
+# 否则 yt-dlp 下载抖音也会走代理而失败（抖音需要国内直连）。
+EnvironmentFile=/opt/video-to-notes/.env
+ExecStart=/opt/video-to-notes/video-to-notes
+Restart=always
+RestartSec=5
+User=video2notes
+Group=video2notes
+
+[Install]
+WantedBy=multi-user.target

@@ -13,6 +13,7 @@ type Config struct {
 	VaultPath     string
 	NoteSubdir    string
 	TmpDir        string
+	GitSync       bool // 写完笔记后在 VaultPath 里 git add/commit/push
 }
 
 // Load 从进程环境变量读取配置。
@@ -20,7 +21,7 @@ func Load() (Config, error) {
 	env := map[string]string{}
 	for _, k := range []string{
 		"TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY", "MODEL", "OPENROUTER_PROXY",
-		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR",
+		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR", "GIT_SYNC",
 	} {
 		env[k] = os.Getenv(k)
 	}
@@ -36,6 +37,7 @@ func loadFrom(env map[string]string) (Config, error) {
 		VaultPath:     env["VAULT_PATH"],
 		NoteSubdir:    env["NOTE_SUBDIR"],
 		TmpDir:        env["TMP_DIR"],
+		GitSync:       env["GIT_SYNC"] == "true" || env["GIT_SYNC"] == "1",
 	}
 	if c.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")

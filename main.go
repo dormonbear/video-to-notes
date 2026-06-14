@@ -13,6 +13,7 @@ import (
 
 	"video-to-notes/internal/config"
 	"video-to-notes/internal/douyin"
+	"video-to-notes/internal/gitsync"
 	"video-to-notes/internal/llm"
 	"video-to-notes/internal/note"
 )
@@ -97,6 +98,14 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if err != nil {
 		edit(fmt.Sprintf("❌ 写入失败：%v", err))
 		return
+	}
+
+	if a.cfg.GitSync {
+		if err := gitsync.Push(a.cfg.VaultPath, relPath, "add note: "+relPath); err != nil {
+			log.Printf("git sync failed: %v", err)
+			edit(fmt.Sprintf("✅ 已生成笔记（⚠️ git 同步失败：%v）\n%s\n\n%s", err, data.Summary, relPath))
+			return
+		}
 	}
 
 	edit(fmt.Sprintf("✅ 已生成笔记\n%s\n\n%s", data.Summary, relPath))
