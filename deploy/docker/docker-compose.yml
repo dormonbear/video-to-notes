@@ -1,0 +1,20 @@
+services:
+  video-to-notes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: video-to-notes:latest
+    container_name: video-to-notes
+    restart: unless-stopped
+    # host 网络：拿宿主国内 IP 下抖音（yt-dlp 直连），并能访问宿主 Clash 127.0.0.1:7890
+    network_mode: host
+    env_file: .env
+    volumes:
+      # dormon.net 仓库（带 push 凭证的 clone），bot 写文章并 git push
+      - ./vault:/vault
+      - ./tmp:/tmp/video-to-notes
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
