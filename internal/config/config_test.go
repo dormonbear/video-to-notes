@@ -35,4 +35,13 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if c.TmpDir != "/tmp/video-to-notes" {
 		t.Errorf("TmpDir default = %q", c.TmpDir)
 	}
+	if c.NoteFormat != "obsidian" {
+		t.Errorf("NoteFormat default = %q, want obsidian", c.NoteFormat)
+	}
+	if c.BlogTag != "video-note" {
+		t.Errorf("BlogTag default = %q, want video-note", c.BlogTag)
+	}
+	if c.BlogDraft != false {
+		t.Errorf("BlogDraft default = %v, want false", c.BlogDraft)
+	}
 }

@@ -13,7 +13,10 @@ type Config struct {
 	VaultPath     string
 	NoteSubdir    string
 	TmpDir        string
-	GitSync       bool // 写完笔记后在 VaultPath 里 git add/commit/push
+	GitSync       bool   // 写完笔记后在 VaultPath 里 git add/commit/push
+	NoteFormat    string // "obsidian" 或 "blog"
+	BlogDraft     bool   // blog 模式：是否以草稿发布
+	BlogTag       string // blog 模式：标记 tag
 }
 
 // Load 从进程环境变量读取配置。
@@ -22,6 +25,7 @@ func Load() (Config, error) {
 	for _, k := range []string{
 		"TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY", "MODEL", "OPENROUTER_PROXY",
 		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR", "GIT_SYNC",
+		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG",
 	} {
 		env[k] = os.Getenv(k)
 	}
@@ -38,6 +42,9 @@ func loadFrom(env map[string]string) (Config, error) {
 		NoteSubdir:    env["NOTE_SUBDIR"],
 		TmpDir:        env["TMP_DIR"],
 		GitSync:       env["GIT_SYNC"] == "true" || env["GIT_SYNC"] == "1",
+		NoteFormat:    env["NOTE_FORMAT"],
+		BlogDraft:     env["BLOG_DRAFT"] == "true" || env["BLOG_DRAFT"] == "1",
+		BlogTag:       env["BLOG_TAG"],
 	}
 	if c.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
@@ -59,6 +66,12 @@ func loadFrom(env map[string]string) (Config, error) {
 	}
 	if c.TmpDir == "" {
 		c.TmpDir = "/tmp/video-to-notes"
+	}
+	if c.NoteFormat == "" {
+		c.NoteFormat = "obsidian"
+	}
+	if c.BlogTag == "" {
+		c.BlogTag = "video-note"
 	}
 	return c, nil
 }

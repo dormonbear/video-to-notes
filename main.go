@@ -88,12 +88,21 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	edit("📝 写入笔记中…")
+	date := time.Now().Format("2006-01-02")
+	if a.cfg.NoteFormat == "blog" {
+		date = time.Now().Format(time.RFC3339)
+	}
 	relPath, err := note.Write(note.Input{
 		Title:     meta.Title,
 		Author:    meta.Author,
 		SourceURL: meta.SourceURL,
-		Date:      time.Now().Format("2006-01-02"),
+		VideoID:   meta.ID,
+		Date:      date,
 		Data:      data,
+	}, note.Options{
+		Format: a.cfg.NoteFormat,
+		Draft:  a.cfg.BlogDraft,
+		Tag:    a.cfg.BlogTag,
 	}, a.cfg.VaultPath, a.cfg.NoteSubdir)
 	if err != nil {
 		edit(fmt.Sprintf("❌ 写入失败：%v", err))

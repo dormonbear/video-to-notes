@@ -8,8 +8,9 @@ import (
 	"strings"
 )
 
-// Data 是 Gemini 返回的结构化笔记内容。
+// Data 是模型返回的结构化笔记内容。
 type Data struct {
+	Title      string // 模型生成的简短标题（用作博客 title）
 	Summary    string
 	Tags       []string
 	KeyPoints  []string
@@ -18,11 +19,19 @@ type Data struct {
 
 // Input 是渲染一篇笔记所需的全部信息。
 type Input struct {
-	Title     string
+	Title     string // 抖音原始标题
 	Author    string
 	SourceURL string
-	Date      string // YYYY-MM-DD
+	VideoID   string // 抖音视频 id（blog 模式做文件名/slug）
+	Date      string // obsidian: YYYY-MM-DD；blog: ISO 8601
 	Data      Data
+}
+
+// Options 控制输出格式。
+type Options struct {
+	Format string // "obsidian" 或 "blog"
+	Draft  bool   // blog：草稿
+	Tag    string // blog：标记 tag
 }
 
 var unsafe = strings.NewReplacer(
@@ -34,6 +43,23 @@ func yamlStr(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", " ")
 	return strconv.Quote(s)
+}
+
+func firstRunes(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > n {
+		return strings.TrimSpace(string(r[:n]))
+	}
+	return s
+}
+
+func ensureTag(tags []string, tag string) []string {
+	for _, t := range tags {
+		if t == tag {
+			return tags
+		}
+	}
+	return append(append([]string{}, tags...), tag)
 }
 
 func safeFilename(s string) string {
@@ -56,7 +82,7 @@ func safeFilename(s string) string {
 	return s
 }
 
-func render(in Input) string {
+func renderObsidian(in Input) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "source: %s\n", yamlStr(in.SourceURL))
@@ -84,15 +110,62 @@ func render(in Input) string {
 	return b.String()
 }
 
-// Write 渲染笔记并写入 vaultPath/subdir/<date>-<title>.md，返回相对 vault 的路径。
-func Write(in Input, vaultPath, subdir string) (string, error) {
+// renderBlog 输出符合 AstroPaper content collection schema 的文章。
+func renderBlog(in Input, opts Options) string {
+	title := strings.TrimSpace(in.Data.Title)
+	if title == "" {
+		title = firstRunes(in.Data.Summary, 20)
+	}
+	if title == "" {
+		title = "视频笔记"
+	}
+	tags := ensureTag(in.Data.Tags, opts.Tag)
+	quoted := make([]string, len(tags))
+	for i, t := range tags {
+		quoted[i] = yamlStr(t)
+	}
+
+	var b strings.Builder
+	b.WriteString("---\n")
+	fmt.Fprintf(&b, "title: %s\n", yamlStr(title))
+	fmt.Fprintf(&b, "pubDatetime: %s\n", in.Date) // 调用方传 ISO 8601
+	fmt.Fprintf(&b, "description: %s\n", yamlStr(in.Data.Summary))
+	fmt.Fprintf(&b, "tags: [%s]\n", strings.Join(quoted, ", "))
+	fmt.Fprintf(&b, "draft: %t\n", opts.Draft)
+	b.WriteString("---\n\n")
+
+	fmt.Fprintf(&b, "> 来源：[抖音 @%s](%s)\n\n", in.Author, in.SourceURL)
+	b.WriteString(in.Data.Summary + "\n\n")
+	b.WriteString("## 核心要点\n")
+	for _, p := range in.Data.KeyPoints {
+		fmt.Fprintf(&b, "- %s\n", p)
+	}
+	b.WriteString("\n## 完整转写\n")
+	b.WriteString(in.Data.Transcript + "\n")
+	return b.String()
+}
+
+// Write 按 opts.Format 渲染并写入 vaultPath/subdir，返回相对 vaultPath 的路径。
+func Write(in Input, opts Options, vaultPath, subdir string) (string, error) {
 	dir := filepath.Join(vaultPath, subdir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir vault subdir: %w", err)
+		return "", fmt.Errorf("mkdir target dir: %w", err)
 	}
-	name := fmt.Sprintf("%s-%s.md", in.Date, safeFilename(in.Title))
+	var name, content string
+	switch opts.Format {
+	case "blog":
+		date := in.Date
+		if len(date) >= 10 {
+			date = date[:10]
+		}
+		name = fmt.Sprintf("%s-douyin-%s.md", date, in.VideoID)
+		content = renderBlog(in, opts)
+	default: // obsidian
+		name = fmt.Sprintf("%s-%s.md", in.Date, safeFilename(in.Title))
+		content = renderObsidian(in)
+	}
 	full := filepath.Join(dir, name)
-	if err := os.WriteFile(full, []byte(render(in)), 0o644); err != nil {
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write note: %w", err)
 	}
 	return filepath.Join(subdir, name), nil

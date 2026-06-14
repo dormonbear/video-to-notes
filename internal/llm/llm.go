@@ -64,12 +64,13 @@ func noteSchema() map[string]any {
 			"schema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
+					"title":      str,
 					"summary":    str,
 					"tags":       map[string]any{"type": "array", "items": str},
 					"key_points": map[string]any{"type": "array", "items": str},
 					"transcript": str,
 				},
-				"required":             []string{"summary", "tags", "key_points", "transcript"},
+				"required":             []string{"title", "summary", "tags", "key_points", "transcript"},
 				"additionalProperties": false,
 			},
 		},
@@ -140,6 +141,7 @@ func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, erro
 	}
 
 	var d struct {
+		Title      string   `json:"title"`
 		Summary    string   `json:"summary"`
 		Tags       []string `json:"tags"`
 		KeyPoints  []string `json:"key_points"`
@@ -148,7 +150,7 @@ func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, erro
 	if err := json.Unmarshal([]byte(out.Choices[0].Message.Content), &d); err != nil {
 		return note.Data{}, fmt.Errorf("parse note json: %w", err)
 	}
-	return note.Data{Summary: d.Summary, Tags: d.Tags, KeyPoints: d.KeyPoints, Transcript: d.Transcript}, nil
+	return note.Data{Title: d.Title, Summary: d.Summary, Tags: d.Tags, KeyPoints: d.KeyPoints, Transcript: d.Transcript}, nil
 }
 
 func truncate(b []byte, n int) string {

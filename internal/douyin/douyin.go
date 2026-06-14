@@ -19,6 +19,7 @@ type Meta struct {
 	Title     string
 	Author    string
 	SourceURL string
+	ID        string // 抖音视频 id，用于博客文件名/slug
 }
 
 var urlRe = regexp.MustCompile(`https?://[^\s]*douyin\.com/[^\s]+`)
@@ -83,5 +84,5 @@ func Fetch(shareText, destDir string) (string, Meta, error) {
 	if author == "" {
 		author = info.Uploader
 	}
-	return audioPath, Meta{Title: info.Title, Author: author, SourceURL: info.WebpageURL}, nil
+	return audioPath, Meta{Title: info.Title, Author: author, SourceURL: info.WebpageURL, ID: info.ID}, nil
 }
