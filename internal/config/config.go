@@ -17,6 +17,7 @@ type Config struct {
 	NoteFormat    string // "obsidian" 或 "blog"
 	BlogDraft     bool   // blog 模式：是否以草稿发布
 	BlogTag       string // blog 模式：标记 tag
+	TelegramProxy string // Telegram API 走的代理（国内被墙时用）；空=直连
 }
 
 // Load 从进程环境变量读取配置。
@@ -25,7 +26,7 @@ func Load() (Config, error) {
 	for _, k := range []string{
 		"TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY", "MODEL", "OPENROUTER_PROXY",
 		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR", "GIT_SYNC",
-		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG",
+		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG", "TELEGRAM_PROXY",
 	} {
 		env[k] = os.Getenv(k)
 	}
@@ -45,6 +46,7 @@ func loadFrom(env map[string]string) (Config, error) {
 		NoteFormat:    env["NOTE_FORMAT"],
 		BlogDraft:     env["BLOG_DRAFT"] == "true" || env["BLOG_DRAFT"] == "1",
 		BlogTag:       env["BLOG_TAG"],
+		TelegramProxy: env["TELEGRAM_PROXY"],
 	}
 	if c.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")

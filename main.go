@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"time"
@@ -38,10 +40,21 @@ func main() {
 	}
 	a := &app{cfg: cfg, gem: gem}
 
-	b, err := bot.New(cfg.TelegramToken,
+	opts := []bot.Option{
 		bot.WithDefaultHandler(a.handle),
 		bot.WithInitialOffset(-1), // 跳过启动前的积压消息
-	)
+	}
+	// Telegram API 在部分地区被墙：通过代理访问（不影响 yt-dlp 直连下载抖音）。
+	if cfg.TelegramProxy != "" {
+		u, err := url.Parse(cfg.TelegramProxy)
+		if err != nil {
+			log.Fatalf("bad TELEGRAM_PROXY %q: %v", cfg.TelegramProxy, err)
+		}
+		client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}}
+		opts = append(opts, bot.WithHTTPClient(30*time.Second, client))
+	}
+
+	b, err := bot.New(cfg.TelegramToken, opts...)
 	if err != nil {
 		log.Fatalf("bot: %v", err)
 	}
