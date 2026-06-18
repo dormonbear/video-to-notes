@@ -10,11 +10,10 @@ import (
 
 // Data 是模型返回的结构化笔记内容。
 type Data struct {
-	Title      string // 模型生成的简短标题（用作博客 title）
-	Summary    string
-	Tags       []string
-	KeyPoints  []string
-	Transcript string
+	Title   string // 模型生成的简短标题（用作博客 title）
+	Summary string
+	Tags    []string
+	Article string // AI 二次创作的成稿正文（markdown），取代逐字稿
 }
 
 // Input 是渲染一篇笔记所需的全部信息。
@@ -99,14 +98,7 @@ func renderObsidian(in Input) string {
 	b.WriteString("## 一句话摘要\n")
 	b.WriteString(in.Data.Summary + "\n\n")
 
-	b.WriteString("## 核心要点\n")
-	for _, p := range in.Data.KeyPoints {
-		fmt.Fprintf(&b, "- %s\n", p)
-	}
-	b.WriteString("\n")
-
-	b.WriteString("## 完整转写\n")
-	b.WriteString(in.Data.Transcript + "\n")
+	b.WriteString(strings.TrimSpace(in.Data.Article) + "\n")
 	return b.String()
 }
 
@@ -135,13 +127,7 @@ func renderBlog(in Input, opts Options) string {
 	b.WriteString("---\n\n")
 
 	fmt.Fprintf(&b, "> 来源：[抖音 @%s](%s)\n\n", in.Author, in.SourceURL)
-	b.WriteString(in.Data.Summary + "\n\n")
-	b.WriteString("## 核心要点\n")
-	for _, p := range in.Data.KeyPoints {
-		fmt.Fprintf(&b, "- %s\n", p)
-	}
-	b.WriteString("\n## 完整转写\n")
-	b.WriteString(in.Data.Transcript + "\n")
+	b.WriteString(strings.TrimSpace(in.Data.Article) + "\n")
 	return b.String()
 }
 

@@ -6,6 +6,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -46,6 +47,14 @@ func New(apiKey, model, proxy string) (*Client, error) {
 		}
 		tr.Proxy = http.ProxyURL(u)
 	}
+	// Force HTTP/1.1. Over a flaky obfs/relay proxy, large HTTP/2 uploads get the
+	// h2 stream corrupted ("tls: bad record MAC") or reset (EOF); HTTP/1.1 is robust.
+	tr.ForceAttemptHTTP2 = false
+	tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	// Fresh connection per request. The pooled connection over this proxy can go
+	// half-broken; reusing it makes every retry fail identically (EOF). A new
+	// connection each attempt mirrors what reliably works (python urllib).
+	tr.DisableKeepAlives = true
 	return &Client{
 		apiKey: apiKey,
 		model:  model,
@@ -64,26 +73,28 @@ func noteSchema() map[string]any {
 			"schema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"title":      str,
-					"summary":    str,
-					"tags":       map[string]any{"type": "array", "items": str},
-					"key_points": map[string]any{"type": "array", "items": str},
-					"transcript": str,
+					"title":   str,
+					"summary": str,
+					"tags":    map[string]any{"type": "array", "items": str},
+					"article": str,
 				},
-				"required":             []string{"title", "summary", "tags", "key_points", "transcript"},
+				"required":             []string{"title", "summary", "tags", "article"},
 				"additionalProperties": false,
 			},
 		},
 	}
 }
 
-// Analyze base64-encodes the audio, sends it to the model and returns structured note data.
-func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, error) {
-	raw, err := os.ReadFile(audioPath)
+// Analyze base64-encodes the video, sends it to the model and returns structured note data.
+// The video is sent as a data URL via the video_url content part. base64 video is only
+// accepted by Gemini on Vertex AI (AI Studio requires a YouTube link), so the request
+// pins the provider to google-vertex with fallbacks disabled.
+func (c *Client) Analyze(ctx context.Context, videoPath string) (note.Data, error) {
+	raw, err := os.ReadFile(videoPath)
 	if err != nil {
-		return note.Data{}, fmt.Errorf("read audio: %w", err)
+		return note.Data{}, fmt.Errorf("read video: %w", err)
 	}
-	b64 := base64.StdEncoding.EncodeToString(raw)
+	dataURL := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(raw)
 
 	reqBody := map[string]any{
 		"model": c.model,
@@ -92,17 +103,42 @@ func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, erro
 				"role": "user",
 				"content": []any{
 					map[string]any{"type": "text", "text": prompt.VideoNote},
-					map[string]any{"type": "input_audio", "input_audio": map[string]any{"data": b64, "format": "mp3"}},
+					map[string]any{"type": "video_url", "video_url": map[string]any{"url": dataURL}},
 				},
 			},
 		},
 		"response_format": noteSchema(),
+		"provider":        map[string]any{"order": []string{"google-vertex"}, "allow_fallbacks": false},
 	}
 	buf, err := json.Marshal(reqBody)
 	if err != nil {
 		return note.Data{}, fmt.Errorf("marshal request: %w", err)
 	}
 
+	// The proxy/relay path is flaky for large round-trips: requests/responses get
+	// truncated, reset, or TLS-corrupted intermittently. Retry the whole exchange a
+	// few times with backoff; a fresh connection usually succeeds within a couple tries.
+	const attempts = 4
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return note.Data{}, ctx.Err()
+			case <-time.After(time.Duration(i) * 2 * time.Second):
+			}
+		}
+		data, err := c.exchange(ctx, buf)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+	}
+	return note.Data{}, fmt.Errorf("after %d attempts: %w", attempts, lastErr)
+}
+
+// exchange performs one request/response round-trip and parses the note.
+func (c *Client) exchange(ctx context.Context, buf []byte) (note.Data, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return note.Data{}, err
@@ -115,7 +151,10 @@ func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, erro
 		return note.Data{}, fmt.Errorf("openrouter request: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return note.Data{}, fmt.Errorf("read response body (truncated): %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return note.Data{}, fmt.Errorf("openrouter HTTP %d: %s", resp.StatusCode, truncate(body, 400))
 	}
@@ -131,7 +170,7 @@ func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, erro
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
-		return note.Data{}, fmt.Errorf("decode response: %w", err)
+		return note.Data{}, fmt.Errorf("decode response (%d bytes): %w", len(body), err)
 	}
 	if out.Error != nil {
 		return note.Data{}, fmt.Errorf("openrouter error: %s", out.Error.Message)
@@ -141,16 +180,15 @@ func (c *Client) Analyze(ctx context.Context, audioPath string) (note.Data, erro
 	}
 
 	var d struct {
-		Title      string   `json:"title"`
-		Summary    string   `json:"summary"`
-		Tags       []string `json:"tags"`
-		KeyPoints  []string `json:"key_points"`
-		Transcript string   `json:"transcript"`
+		Title   string   `json:"title"`
+		Summary string   `json:"summary"`
+		Tags    []string `json:"tags"`
+		Article string   `json:"article"`
 	}
 	if err := json.Unmarshal([]byte(out.Choices[0].Message.Content), &d); err != nil {
 		return note.Data{}, fmt.Errorf("parse note json: %w", err)
 	}
-	return note.Data{Title: d.Title, Summary: d.Summary, Tags: d.Tags, KeyPoints: d.KeyPoints, Transcript: d.Transcript}, nil
+	return note.Data{Title: d.Title, Summary: d.Summary, Tags: d.Tags, Article: d.Article}, nil
 }
 
 func truncate(b []byte, n int) string {

@@ -16,11 +16,15 @@ func TestFetchRealLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch error: %v", err)
 	}
-	if !strings.HasSuffix(path, ".mp3") {
-		t.Errorf("expected an .mp3 audio path, got %s", path)
+	if !strings.HasSuffix(path, ".mp4") {
+		t.Errorf("expected an .mp4 video path, got %s", path)
 	}
-	if fi, err := os.Stat(path); err != nil || fi.Size() == 0 {
-		t.Fatalf("expected non-empty audio at %s, err=%v", path, err)
+	fi, err := os.Stat(path)
+	if err != nil || fi.Size() == 0 {
+		t.Fatalf("expected non-empty video at %s, err=%v", path, err)
+	}
+	if fi.Size() > maxInlineBytes {
+		t.Errorf("transcoded video exceeds inline limit: %d bytes", fi.Size())
 	}
 	if meta.Title == "" || meta.SourceURL == "" {
 		t.Errorf("expected non-empty meta, got %+v", meta)

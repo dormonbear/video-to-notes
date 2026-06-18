@@ -36,7 +36,7 @@ func TestWriteHandlesLongMultibyteTitle(t *testing.T) {
 		Author:    "夜航船",
 		SourceURL: "https://v.douyin.com/x/",
 		Date:      "2026-06-14",
-		Data:      Data{Summary: "s", Tags: []string{"a"}, KeyPoints: []string{"p"}, Transcript: "t"},
+		Data:      Data{Summary: "s", Tags: []string{"a"}, Article: "正文"},
 	}, Options{Format: "obsidian"}, dir, "video-notes")
 	if err != nil {
 		t.Fatalf("Write failed on long multibyte title: %v", err)
@@ -54,7 +54,7 @@ func TestRenderBlogFrontmatterValid(t *testing.T) {
 		Date:      "2026-06-14T06:06:00Z",
 		Data: Data{
 			Title: "Agent 落地踩坑", Summary: "讲 Agent 落地经验。",
-			Tags: []string{"Agent", "AI"}, KeyPoints: []string{"p1"}, Transcript: "全文",
+			Tags: []string{"Agent", "AI"}, Article: "## 引子\n这是一篇成稿文章。",
 		},
 	}, Options{Format: "blog", Draft: false, Tag: "video-note"})
 	for _, want := range []string{
@@ -62,12 +62,15 @@ func TestRenderBlogFrontmatterValid(t *testing.T) {
 		"pubDatetime: 2026-06-14T06:06:00Z",
 		`description: "讲 Agent 落地经验。"`,
 		`"video-note"`, "draft: false",
-		"## 核心要点", "- p1", "## 完整转写", "全文",
+		"## 引子", "这是一篇成稿文章。",
 		"来源：[抖音 @夜航船](https://v.douyin.com/x/)",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("renderBlog missing %q\n---\n%s", want, md)
 		}
+	}
+	if strings.Contains(md, "完整转写") {
+		t.Errorf("blog should not contain transcript section:\n%s", md)
 	}
 }
 
@@ -76,7 +79,7 @@ func TestWriteBlogFilenameIsAsciiSlug(t *testing.T) {
 	rel, err := Write(Input{
 		Title: "无所谓", Author: "夜航船", SourceURL: "https://v.douyin.com/x/",
 		VideoID: "7650479446944032101", Date: "2026-06-14T06:06:00Z",
-		Data: Data{Title: "标题", Summary: "s", Tags: []string{"a"}, KeyPoints: []string{"p"}, Transcript: "t"},
+		Data: Data{Title: "标题", Summary: "s", Tags: []string{"a"}, Article: "正文"},
 	}, Options{Format: "blog", Tag: "video-note"}, dir, "src/content/blog")
 	if err != nil {
 		t.Fatalf("Write blog failed: %v", err)
@@ -91,16 +94,15 @@ func TestRenderContainsAllSections(t *testing.T) {
 		Title: "标题", Author: "作者", SourceURL: "https://v.douyin.com/x/",
 		Date: "2026-06-13",
 		Data: Data{
-			Summary:   "一句话",
-			Tags:      []string{"a", "b"},
-			KeyPoints: []string{"p1", "p2"},
-			Transcript: "全文",
+			Summary: "一句话",
+			Tags:    []string{"a", "b"},
+			Article: "## 正文标题\n正文内容",
 		},
 	})
 	for _, want := range []string{
 		`source: "https://v.douyin.com/x/"`, `author: "作者"`,
 		`tags: ["a", "b"]`, "## 一句话摘要", "一句话",
-		"## 核心要点", "- p1", "## 完整转写", "全文",
+		"## 正文标题", "正文内容",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("render output missing %q\n---\n%s", want, md)
@@ -114,7 +116,7 @@ func TestRenderEscapesUnsafeFrontmatter(t *testing.T) {
 		Author:    "作者",
 		SourceURL: "https://v.douyin.com/x/",
 		Date:      "2026-06-13",
-		Data:      Data{Summary: "s", Tags: []string{"a"}, KeyPoints: []string{"p"}, Transcript: "t"},
+		Data:      Data{Summary: "s", Tags: []string{"a"}, Article: "正文"},
 	})
 	// The title line must be a single quoted scalar with no raw newline and no comment truncation.
 	if !strings.Contains(md, `title: "踩过的坑 #agent: 第一行 第二行"`) {

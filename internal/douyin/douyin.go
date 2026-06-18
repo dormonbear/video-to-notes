@@ -28,10 +28,26 @@ func extractURL(s string) string {
 	return urlRe.FindString(s)
 }
 
-// Fetch 提取分享文本里的抖音链接，下载最小体积的无水印视频，再用 ffmpeg 抽取
-// 低码率单声道音频（删掉视频本体），返回音频文件路径与元数据。
-// 只取音频：笔记内容（摘要/要点/转写）都来自语音，且音频远小于视频，可处理长视频
-// 并绕开 OpenRouter 内联 ~20MB 的上限。
+// ExtractURLs 返回文本里所有抖音链接（按出现顺序去重），用于单条消息含多个链接的批量场景。
+func ExtractURLs(s string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, u := range urlRe.FindAllString(s, -1) {
+		if !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// maxInlineBytes 是发给 OpenRouter 的视频上限（base64 内联约 20MB，留余量按 18MB）。
+const maxInlineBytes = 18 << 20
+
+// Fetch 提取分享文本里的抖音链接，下载无水印视频，再用 ffmpeg 压制成低分辨率、
+// 1fps 的小体积 mp4（保留画面+音频），删掉原视频，返回压制后视频路径与元数据。
+// 1fps 是 Gemini 视频理解的默认采样率，因此不损失模型可见信息，又让体积与时长解耦，
+// 能稳定控制在 OpenRouter 内联上限以下。
 func Fetch(shareText, destDir string) (string, Meta, error) {
 	url := extractURL(shareText)
 	if url == "" {
@@ -67,22 +83,50 @@ func Fetch(shareText, destDir string) (string, Meta, error) {
 	if _, err := os.Stat(videoPath); err != nil {
 		return "", Meta{}, fmt.Errorf("downloaded file missing at %s: %w", videoPath, err)
 	}
-	defer os.Remove(videoPath) // 抽完音频就删视频
+	defer os.Remove(videoPath) // 压制后就删原视频
 
-	audioPath := filepath.Join(destDir, info.ID+".mp3")
-	// 单声道 16kHz 48kbps mp3：语音清晰、体积极小（约 0.36MB/分钟）。
-	ff := exec.Command("ffmpeg", "-y", "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", audioPath)
-	ff.Stderr = os.Stderr
-	if err := ff.Run(); err != nil {
-		return "", Meta{}, fmt.Errorf("ffmpeg extract audio failed: %w", err)
-	}
-	if fi, err := os.Stat(audioPath); err != nil || fi.Size() == 0 {
-		return "", Meta{}, fmt.Errorf("extracted audio missing/empty at %s: %w", audioPath, err)
+	outPath := filepath.Join(destDir, info.ID+".small.mp4")
+	if err := transcode(videoPath, outPath); err != nil {
+		return "", Meta{}, err
 	}
 
 	author := info.Channel
 	if author == "" {
 		author = info.Uploader
 	}
-	return audioPath, Meta{Title: info.Title, Author: author, SourceURL: info.WebpageURL, ID: info.ID}, nil
+	return outPath, Meta{Title: info.Title, Author: author, SourceURL: info.WebpageURL, ID: info.ID}, nil
+}
+
+// transcode 用递进的压制档位生成小体积 mp4：先 480p，若仍超上限再降到 360p。
+func transcode(src, dst string) error {
+	profiles := []struct{ scale, crf string }{
+		{"480", "28"},
+		{"360", "32"},
+	}
+	var lastErr error
+	for _, p := range profiles {
+		args := []string{
+			"-y", "-i", src,
+			"-vf", "scale=-2:" + p.scale, "-r", "1",
+			"-c:v", "libx264", "-crf", p.crf, "-preset", "veryfast", "-pix_fmt", "yuv420p",
+			"-c:a", "aac", "-b:a", "40k", "-ac", "1",
+			"-movflags", "+faststart", dst,
+		}
+		ff := exec.Command("ffmpeg", args...)
+		ff.Stderr = os.Stderr
+		if err := ff.Run(); err != nil {
+			lastErr = fmt.Errorf("ffmpeg transcode failed: %w", err)
+			continue
+		}
+		fi, err := os.Stat(dst)
+		if err != nil || fi.Size() == 0 {
+			lastErr = fmt.Errorf("transcoded video missing/empty at %s: %w", dst, err)
+			continue
+		}
+		if fi.Size() <= maxInlineBytes {
+			return nil
+		}
+		lastErr = fmt.Errorf("transcoded video too large: %d bytes (limit %d)", fi.Size(), maxInlineBytes)
+	}
+	return lastErr
 }

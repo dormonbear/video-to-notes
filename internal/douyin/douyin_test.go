@@ -14,3 +14,20 @@ func TestExtractURL(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractURLs(t *testing.T) {
+	in := "批量：https://v.douyin.com/AAA/ 然后 https://www.douyin.com/video/123?x=1 再来 https://v.douyin.com/AAA/ 重复"
+	got := ExtractURLs(in)
+	want := []string{"https://v.douyin.com/AAA/", "https://www.douyin.com/video/123?x=1"}
+	if len(got) != len(want) {
+		t.Fatalf("ExtractURLs returned %d urls, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("url[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if n := len(ExtractURLs("no link")); n != 0 {
+		t.Errorf("expected 0 urls for no-link text, got %d", n)
+	}
+}
