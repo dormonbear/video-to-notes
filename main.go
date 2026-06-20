@@ -96,6 +96,9 @@ func main() {
 	a.b = b
 	a.recover(ctx)   // 重启后恢复未完成任务
 	go a.worker(ctx) // 单 worker 串行处理队列：避免并行大上传抢代理 + git 仓库写冲突
+	if cfg.APIAddr != "" {
+		go a.serveAPI(ctx) // iOS 快捷指令投递链接的 HTTP 端点
+	}
 	log.Println("video-to-notes bot started")
 	b.Start(ctx)
 }
@@ -179,23 +182,31 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	for _, u := range urls {
-		pos := atomic.AddInt64(&a.queued, 1)
-		text := "✅ 已加入队列，开始处理…"
-		if pos > 1 {
-			text = fmt.Sprintf("✅ 已加入队列（第 %d 位），排队中…", pos)
-		}
-		status, err := b.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: text})
-		if err != nil {
+		if err := a.enqueue(ctx, chatID, u); err != nil {
 			log.Printf("send queue ack to chat %d: %v", chatID, err)
-			atomic.AddInt64(&a.queued, -1)
-			continue
 		}
-		j := job{id: fmt.Sprintf("%d:%d", chatID, status.ID), chatID: chatID, statusID: status.ID, url: u}
-		if err := a.store.MarkQueued(jobqueue.Job{ID: j.id, ChatID: j.chatID, StatusID: j.statusID, URL: j.url}); err != nil {
-			log.Printf("jobqueue mark queued %s: %v", j.id, err) // 尽力而为：落盘失败仍走内存队列
-		}
-		a.jobs <- j
 	}
+}
+
+// enqueue 向 chatID 发一条队列回执、把任务落盘、推给 worker。Telegram handler
+// 和 HTTP ingest 端点共用它，保证两条入口走完全相同的处理/持久化/恢复链路。
+func (a *app) enqueue(ctx context.Context, chatID int64, u string) error {
+	pos := atomic.AddInt64(&a.queued, 1)
+	text := "✅ 已加入队列，开始处理…"
+	if pos > 1 {
+		text = fmt.Sprintf("✅ 已加入队列（第 %d 位），排队中…", pos)
+	}
+	status, err := a.b.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: text})
+	if err != nil {
+		atomic.AddInt64(&a.queued, -1)
+		return err
+	}
+	j := job{id: fmt.Sprintf("%d:%d", chatID, status.ID), chatID: chatID, statusID: status.ID, url: u}
+	if err := a.store.MarkQueued(jobqueue.Job{ID: j.id, ChatID: j.chatID, StatusID: j.statusID, URL: j.url}); err != nil {
+		log.Printf("jobqueue mark queued %s: %v", j.id, err) // 尽力而为：落盘失败仍走内存队列
+	}
+	a.jobs <- j
+	return nil
 }
 
 // worker 串行消费队列。串行是有意为之：并行大上传会抢那条脆弱的代理出口、

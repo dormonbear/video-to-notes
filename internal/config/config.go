@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -19,6 +20,9 @@ type Config struct {
 	BlogTag       string // blog 模式：标记 tag
 	BlogBaseURL   string // blog 模式：站点域名（如 https://dormon.net），用于回执里给文章在线地址；空=不显示
 	TelegramProxy string // Telegram API 走的代理（国内被墙时用）；空=直连
+	APIAddr       string // HTTP ingest 端点监听地址（如 ":8787"）；空=不启用，供 iOS 快捷指令投递链接
+	APIToken      string // ingest 端点的 Bearer token（启用 API 时必填）
+	NotifyChatID  int64  // 快捷指令触发的任务把进度/结果发到这个 Telegram 会话（启用 API 时必填）
 }
 
 // Load 从进程环境变量读取配置。
@@ -28,6 +32,7 @@ func Load() (Config, error) {
 		"TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY", "MODEL", "OPENROUTER_PROXY",
 		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR", "GIT_SYNC",
 		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG", "BLOG_BASE_URL", "TELEGRAM_PROXY",
+		"API_ADDR", "API_TOKEN", "NOTIFY_CHAT_ID",
 	} {
 		env[k] = os.Getenv(k)
 	}
@@ -49,6 +54,18 @@ func loadFrom(env map[string]string) (Config, error) {
 		BlogTag:       env["BLOG_TAG"],
 		BlogBaseURL:   env["BLOG_BASE_URL"],
 		TelegramProxy: env["TELEGRAM_PROXY"],
+		APIAddr:       env["API_ADDR"],
+		APIToken:      env["API_TOKEN"],
+	}
+	if v := env["NOTIFY_CHAT_ID"]; v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return Config{}, fmt.Errorf("NOTIFY_CHAT_ID must be an integer: %w", err)
+		}
+		c.NotifyChatID = id
+	}
+	if c.APIAddr != "" && (c.APIToken == "" || c.NotifyChatID == 0) {
+		return Config{}, fmt.Errorf("API_ADDR set: API_TOKEN and NOTIFY_CHAT_ID are required")
 	}
 	if c.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
