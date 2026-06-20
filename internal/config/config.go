@@ -17,6 +17,7 @@ type Config struct {
 	NoteFormat    string // "obsidian" 或 "blog"
 	BlogDraft     bool   // blog 模式：是否以草稿发布
 	BlogTag       string // blog 模式：标记 tag
+	BlogBaseURL   string // blog 模式：站点域名（如 https://dormon.net），用于回执里给文章在线地址；空=不显示
 	TelegramProxy string // Telegram API 走的代理（国内被墙时用）；空=直连
 }
 
@@ -26,7 +27,7 @@ func Load() (Config, error) {
 	for _, k := range []string{
 		"TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY", "MODEL", "OPENROUTER_PROXY",
 		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR", "GIT_SYNC",
-		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG", "TELEGRAM_PROXY",
+		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG", "BLOG_BASE_URL", "TELEGRAM_PROXY",
 	} {
 		env[k] = os.Getenv(k)
 	}
@@ -46,6 +47,7 @@ func loadFrom(env map[string]string) (Config, error) {
 		NoteFormat:    env["NOTE_FORMAT"],
 		BlogDraft:     env["BLOG_DRAFT"] == "true" || env["BLOG_DRAFT"] == "1",
 		BlogTag:       env["BLOG_TAG"],
+		BlogBaseURL:   env["BLOG_BASE_URL"],
 		TelegramProxy: env["TELEGRAM_PROXY"],
 	}
 	if c.TelegramToken == "" {

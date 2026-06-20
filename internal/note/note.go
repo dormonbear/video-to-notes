@@ -156,3 +156,14 @@ func Write(in Input, opts Options, vaultPath, subdir string) (string, error) {
 	}
 	return filepath.Join(subdir, name), nil
 }
+
+// PostURL 把 blog 模式写出的相对路径映射为 AstroPaper 文章在线地址。
+// base 为站点域名（如 https://dormon.net）；base 为空返回 ""。
+// AstroPaper 路由为 /posts/<slug>，slug 默认取文件名去掉 .md。
+func PostURL(base, relPath string) string {
+	if base == "" {
+		return ""
+	}
+	slug := strings.TrimSuffix(filepath.Base(relPath), ".md")
+	return strings.TrimRight(base, "/") + "/posts/" + slug
+}

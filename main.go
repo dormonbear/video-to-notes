@@ -94,7 +94,7 @@ func main() {
 		log.Fatalf("bot: %v", err)
 	}
 	a.b = b
-	a.recover(ctx) // 重启后恢复未完成任务
+	a.recover(ctx)   // 重启后恢复未完成任务
 	go a.worker(ctx) // 单 worker 串行处理队列：避免并行大上传抢代理 + git 仓库写冲突
 	log.Println("video-to-notes bot started")
 	b.Start(ctx)
@@ -275,6 +275,12 @@ func (a *app) process(ctx context.Context, j job) error {
 		}
 	}
 
-	edit(fmt.Sprintf("✅ 已生成笔记\n%s\n\n%s", data.Summary, relPath))
+	link := ""
+	if a.cfg.NoteFormat == "blog" {
+		if u := note.PostURL(a.cfg.BlogBaseURL, relPath); u != "" {
+			link = "\n🔗 " + u
+		}
+	}
+	edit(fmt.Sprintf("✅ 已生成笔记\n%s\n\n%s%s", data.Summary, relPath, link))
 	return nil
 }
