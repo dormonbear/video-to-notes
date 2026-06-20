@@ -28,12 +28,24 @@ func (a *app) serveAPI(ctx context.Context) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 64*1024))
-		urls := douyin.ExtractURLs(string(body))
+		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+		// iOS Shortcuts 发表单（urlencoded/multipart）时文本在 text/q 字段；
+		// 其它客户端（openssl/curl）直接发 raw body。两者都支持。
+		text := r.FormValue("text")
+		if text == "" {
+			text = r.FormValue("q")
+		}
+		if text == "" {
+			body, _ := io.ReadAll(r.Body)
+			text = string(body)
+		}
+		urls := douyin.ExtractURLs(text)
 		if len(urls) == 0 {
+			log.Printf("ingest: no link in %d-char input: %.120q", len(text), text)
 			http.Error(w, "no douyin link found", http.StatusBadRequest)
 			return
 		}
+		log.Printf("ingest: %d link(s) from %d-char input", len(urls), len(text))
 		n := 0
 		for _, u := range urls {
 			if err := a.enqueue(ctx, a.cfg.NotifyChatID, u); err != nil {
