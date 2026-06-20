@@ -35,20 +35,29 @@ NOTIFY_CHAT_ID=<你和 bot 私聊的 chat id>
 
 ## iOS 快捷指令
 
-新建快捷指令，3 个动作：
+导入已签名的快捷指令文件即可（iOS 不允许导入未签名文件，故必须用 macOS `shortcuts sign` 签过）：
 
-1. **接收** — 顶部「分享表单」开启，接收类型选「文本」「URL」。
-   （这样在抖音 App 里点分享 → 选这个快捷指令就能直接传链接。）
+1. 生成 / 重新签名（token、URL 已内置）：
+   ```bash
+   shortcuts sign --mode anyone \
+     --input  抖音转笔记.shortcut \
+     --output 抖音转笔记-signed.shortcut
+   ```
+2. 把 `抖音转笔记-signed.shortcut` AirDrop 到 iPhone（或经 iCloud Drive）→ 打开 → 添加。
 
-2. **获取 URL 内容**（Get Contents of URL）：
-   - URL：`https://video2note.hk.dormon.net/ingest`
-   - 方法：`POST`
-   - 请求头：`Authorization` = `Bearer <你的 API_TOKEN>`
-   - 请求体：`文件` / 原始文本，内容设为「快捷指令输入」（Shortcut Input）
+**用法（两条路任选，至少一条有口令即可）**：
+- 抖音 App → 视频右下「分享」→ 滑到底「更多」→ 选「抖音转笔记」，或
+- **复制**分享口令后直接运行快捷指令。
 
-3. **显示通知**（可选）：内容设为上一步的结果，看到 `✅ 已加入队列` 即成功。
+### 快捷指令内部（3 个动作）
 
-**用法**：抖音 App → 视频右下「分享」→ 滑到底「更多」→ 选这个快捷指令。或复制分享口令后手动运行快捷指令（口令文本里有链接即可，端点会自动提取）。
+1. **文本** = `「快捷指令输入」 + 「剪贴板」`（两个变量中间一个空格）。
+   合并两源是关键：从分享触发时「快捷指令输入」有值；直接运行时「剪贴板」有值。空的那源只是多个空格，不影响提链接。
+2. **获取 URL 内容**：`POST https://video2note.hk.dormon.net/ingest`
+   - 请求头 `Authorization: Bearer <API_TOKEN>`
+   - 请求体类型 **表单（Form）**，字段 `text` = 上一步的「文本」。
+     （不要用「文件」body——它不发送文本变量，会发出空 body。）
+3. **显示通知** = 上一步结果，看到 `✅ 已加入队列` 即成功。
 
 ---
 
@@ -57,7 +66,8 @@ NOTIFY_CHAT_ID=<你和 bot 私聊的 chat id>
 ```
 POST /ingest
 Authorization: Bearer <API_TOKEN>
-Body: 任意含抖音链接的文本（分享口令也行，自动提取）
+Body（取第一个非空）：表单字段 text → 表单字段 q → 原始 body
+     —— 任意含抖音链接的文本，分享口令也行，自动提取
 
 200  ✅ 已加入队列（N 个链接），进度看 Telegram
 400  no douyin link found
@@ -65,4 +75,6 @@ Body: 任意含抖音链接的文本（分享口令也行，自动提取）
 405  method not allowed
 ```
 
-一条请求可含多个链接，全部入队。进度/结果发到 `NOTIFY_CHAT_ID` 的 Telegram 会话，与直接发给 bot 完全一致。
+- 一条请求可含多个链接，全部入队；完全相同的链接在本次请求内去重。
+- **视频级去重**：worker 下载拿到视频 id 后、Gemini 分析前，若 vault 已有 `*-douyin-{id}.md`（任意日期）则跳过——挡住同一视频的不同链接形式与跨天重复提交，回执 `ℹ️ 该视频已发布过，跳过`，不重复花费 / 发布。
+- 进度/结果发到 `NOTIFY_CHAT_ID` 的 Telegram 会话，与直接发给 bot 完全一致。

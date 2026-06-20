@@ -3,12 +3,14 @@
 架构：国内 VPS 跑 bot → yt-dlp 国内直连下载抖音 → OpenRouter 客户端经 VPS 上的代理调 Gemini → 笔记写进一个 git 仓库并自动 push → 本机 Obsidian 用 Git 插件拉。
 
 ```
-Telegram ──► bot(VPS, 国内IP)
-               ├─ yt-dlp 下载抖音        (直连，不走代理)
-               ├─ ffmpeg 抽音频
-               ├─ OpenRouter→Gemini       (走 OPENROUTER_PROXY)
-               └─ 写 .md → git push ──► 远程仓库 ──► 本机 Obsidian(Git 插件 pull)
+Telegram ─────► bot(VPS, 国内IP)
+HTTP /ingest ──┘   ├─ yt-dlp 下载抖音        (直连，不走代理)
+(iOS 快捷指令)      ├─ ffmpeg 抽音频
+                   ├─ OpenRouter→Gemini       (走 OPENROUTER_PROXY)
+                   └─ 写 .md → git push ──► 远程仓库 ──► 本机 Obsidian(Git 插件 pull)
 ```
+
+两个入口：Telegram 直接发口令，或经 HTTP `/ingest` 端点（iOS 快捷指令投递，公网暴露+配置见 `docs/ios-shortcut.md`）。两者走同一队列、持久化与去重。
 
 关键点：**只有 OpenRouter 请求走代理**（`OPENROUTER_PROXY`），yt-dlp 不走代理。所以 **千万不要在 systemd 里设全局 `HTTP_PROXY`/`HTTPS_PROXY`**，否则抖音下载也被代理、必失败。
 
