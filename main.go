@@ -249,6 +249,13 @@ func (a *app) process(ctx context.Context, j job) error {
 	}
 	defer os.Remove(mediaPath)
 
+	// 去重：同一视频已发布过就跳过（短链/规范链都解析到同一 id，含跨天）。
+	// 在下载后、Gemini 分析前检查——下载很便宜，省下的是分析费用与重复发布。
+	if a.cfg.NoteFormat == "blog" && note.Exists(a.cfg.VaultPath, a.cfg.NoteSubdir, meta.ID) {
+		edit("ℹ️ 该视频已发布过，跳过")
+		return nil
+	}
+
 	edit("🧠 Gemini 分析中…")
 	data, err := a.gem.Analyze(ctx, mediaPath)
 	if err != nil {

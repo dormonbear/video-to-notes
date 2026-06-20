@@ -157,6 +157,17 @@ func Write(in Input, opts Options, vaultPath, subdir string) (string, error) {
 	return filepath.Join(subdir, name), nil
 }
 
+// Exists 报告 blog 模式下某 video id 是否已有文章（任意日期）。文件名规则是
+// {date}-douyin-{id}.md，按 *-douyin-{id}.md glob 匹配，用于跨请求/跨天去重。
+// videoID 为空、或 obsidian 模式（文件名不含 id）时返回 false。
+func Exists(vaultPath, subdir, videoID string) bool {
+	if videoID == "" {
+		return false
+	}
+	matches, _ := filepath.Glob(filepath.Join(vaultPath, subdir, "*-douyin-"+videoID+".md"))
+	return len(matches) > 0
+}
+
 // PostURL 把 blog 模式写出的相对路径映射为 AstroPaper 文章在线地址。
 // base 为站点域名（如 https://dormon.net）；base 为空返回 ""。
 // AstroPaper 路由为 /posts/<slug>，slug 默认取文件名去掉 .md。
