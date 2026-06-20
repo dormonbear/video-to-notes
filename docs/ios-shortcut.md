@@ -1,67 +1,39 @@
 # iOS 快捷指令投递抖音链接
 
-手机上复制抖音分享口令 → 快捷指令 POST 到 bot 的 `/ingest` 端点 → 自动下载、解析、发文章。进度和结果照常在 Telegram 看。
+手机上复制抖音分享口令 → 快捷指令 POST 到 `/ingest` 端点 → 自动下载、解析、发文章。进度和结果照常在 Telegram 看。
 
-链路：`快捷指令 → Cloudflare Tunnel(https) → mbp-server :8787 /ingest → 入队 → worker → 博客`
+**已部署**：端点公网地址 `https://video2note.hk.dormon.net/ingest`
+
+链路：
+```
+快捷指令 ──HTTPS──▶ Cloudflare DNS ──▶ dormon-hk OpenResty(:443)
+            └─ proxy_pass 127.0.0.1:18787 (frps)
+               └─ frp TLS 隧道 ──▶ mbp-server :8787 /ingest
+                  └─ 入队 → worker → Gemini → 博客 → Telegram 回执
+```
+
+> 公网暴露走 dormon-infra 既有的 frp → dormon-hk 边缘（与 FreshRSS/RSSHub 同一条链路），命名遵循 `<business>.<region>.<domain>` → `video2note.hk.dormon.net`（dormon.net=Cloudflare 境外边缘）。
 
 ---
 
-## 1. 服务端：启用 ingest 端点
+## 服务端（已配置，备查）
 
-在 mbp-server 的 `/opt/video-to-notes/.env` 追加（token 用 `openssl rand -hex 24` 生成，下面是已生成的一个）：
-
+`/opt/video-to-notes/.env`：
 ```env
 API_ADDR=:8787
-API_TOKEN=<你的 API_TOKEN>
+API_TOKEN=<32 字节随机串，openssl rand -hex 32>
 NOTIFY_CHAT_ID=<你和 bot 私聊的 chat id>
 ```
 
-**取 `NOTIFY_CHAT_ID`**：给 bot 随便发条消息，然后：
+- mbp frpc：`/opt/frp/frpc.toml` 加 `video2note` 隧道（localPort 8787 → remotePort 18787）
+- dormon-hk：`conf.d/video2note.hk.dormon.net.conf`（acme dns_cf 证书 + proxy 到 127.0.0.1:18787）
+- Cloudflare DNS：A `video2note.hk.dormon.net → 156.251.176.16`（proxied=off）
 
-```bash
-curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | jq '.result[-1].message.chat.id'
-```
-
-（容器是 `network_mode: host`，绑 `:8787` 即可被本机的 cloudflared 访问。）
-
-重新部署容器后，日志应出现 `ingest API listening on :8787`。
+容器 `network_mode: host`，日志应有 `ingest API listening on :8787`。
 
 ---
 
-## 2. Cloudflare Tunnel：给端点一个公网 https 地址
-
-手机在外网/蜂窝下也能用，且不在 mbp-server 上开任何入站端口。
-
-```bash
-# mbp-server 上
-cloudflared tunnel login                     # 浏览器授权，选 dormon.net 域名
-cloudflared tunnel create video2notes
-cloudflared tunnel route dns video2notes v2n.dormon.net
-```
-
-`/etc/cloudflared/config.yml`：
-
-```yaml
-tunnel: video2notes
-credentials-file: /root/.cloudflared/<tunnel-id>.json
-ingress:
-  - hostname: v2n.dormon.net
-    service: http://localhost:8787
-  - service: http_status:404
-```
-
-```bash
-cloudflared service install      # 开机自启
-systemctl start cloudflared
-```
-
-验证：`curl https://v2n.dormon.net/ingest` 应返回 `method not allowed`（说明通了，GET 被拒）。
-
-> 安全：端点只靠 Bearer token 保护。token 务必保密；要更严可在 Cloudflare Access 上再加一层。
-
----
-
-## 3. iOS 快捷指令
+## iOS 快捷指令
 
 新建快捷指令，3 个动作：
 
@@ -69,7 +41,7 @@ systemctl start cloudflared
    （这样在抖音 App 里点分享 → 选这个快捷指令就能直接传链接。）
 
 2. **获取 URL 内容**（Get Contents of URL）：
-   - URL：`https://v2n.dormon.net/ingest`
+   - URL：`https://video2note.hk.dormon.net/ingest`
    - 方法：`POST`
    - 请求头：`Authorization` = `Bearer <你的 API_TOKEN>`
    - 请求体：`文件` / 原始文本，内容设为「快捷指令输入」（Shortcut Input）
