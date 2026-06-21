@@ -95,3 +95,18 @@ func TestFindString(t *testing.T) {
 		t.Errorf("missing key should yield empty, got %q", got)
 	}
 }
+
+func TestParseBookmarks(t *testing.T) {
+	body := []byte(`{"data":{"bookmark_timeline_v2":{"timeline":{"instructions":[{"type":"TimelineAddEntries","entries":[
+		{"entryId":"tweet-111","content":{"itemContent":{"tweet_results":{"result":{"rest_id":"111"}}}}},
+		{"entryId":"tweet-222","content":{"itemContent":{"tweet_results":{"result":{"rest_id":"222"}}}}},
+		{"entryId":"cursor-bottom-0","content":{"__typename":"TimelineTimelineCursor","cursorType":"Bottom","value":"NEXTCURSOR"}}
+	]}]}}}}`)
+	ids, next := parseBookmarks(body)
+	if len(ids) != 2 || ids[0] != "111" || ids[1] != "222" {
+		t.Errorf("ids = %v, want [111 222]", ids)
+	}
+	if next != "NEXTCURSOR" {
+		t.Errorf("cursor = %q, want NEXTCURSOR", next)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
@@ -14,17 +15,18 @@ type Config struct {
 	VaultPath     string
 	NoteSubdir    string
 	TmpDir        string
-	GitSync       bool   // 写完笔记后在 VaultPath 里 git add/commit/push
-	NoteFormat    string // "obsidian" 或 "blog"
-	BlogDraft     bool   // blog 模式：是否以草稿发布
-	BlogTag       string // blog 模式：标记 tag
-	BlogBaseURL   string // blog 模式：站点域名（如 https://dormon.net），用于回执里给文章在线地址；空=不显示
-	TelegramProxy string // Telegram API 走的代理（国内被墙时用）；空=直连
-	APIAddr       string // HTTP ingest 端点监听地址（如 ":8787"）；空=不启用，供 iOS 快捷指令投递链接
-	APIToken      string // ingest 端点的 Bearer token（启用 API 时必填）
-	NotifyChatID  int64  // 快捷指令触发的任务把进度/结果发到这个 Telegram 会话（启用 API 时必填）
-	TwitterAuth   string // X auth_token cookie：抓 X 长文 Article 全文（登录墙）；空=Article 跳过
-	TwitterCT0    string // X ct0 cookie（csrf），与 TwitterAuth 配套
+	GitSync       bool          // 写完笔记后在 VaultPath 里 git add/commit/push
+	NoteFormat    string        // "obsidian" 或 "blog"
+	BlogDraft     bool          // blog 模式：是否以草稿发布
+	BlogTag       string        // blog 模式：标记 tag
+	BlogBaseURL   string        // blog 模式：站点域名（如 https://dormon.net），用于回执里给文章在线地址；空=不显示
+	TelegramProxy string        // Telegram API 走的代理（国内被墙时用）；空=直连
+	APIAddr       string        // HTTP ingest 端点监听地址（如 ":8787"）；空=不启用，供 iOS 快捷指令投递链接
+	APIToken      string        // ingest 端点的 Bearer token（启用 API 时必填）
+	NotifyChatID  int64         // 快捷指令触发的任务把进度/结果发到这个 Telegram 会话（启用 API 时必填）
+	TwitterAuth   string        // X auth_token cookie：抓 X 长文 Article 全文（登录墙）；空=Article 跳过
+	TwitterCT0    string        // X ct0 cookie（csrf），与 TwitterAuth 配套
+	BookmarkPoll  time.Duration // 定时拉取 X 收藏并自动成文的间隔（如 "30m"）；0=关闭
 }
 
 // Load 从进程环境变量读取配置。
@@ -35,6 +37,7 @@ func Load() (Config, error) {
 		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR", "GIT_SYNC",
 		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG", "BLOG_BASE_URL", "TELEGRAM_PROXY",
 		"API_ADDR", "API_TOKEN", "NOTIFY_CHAT_ID", "TWITTER_AUTH_TOKEN", "TWITTER_CT0",
+		"BOOKMARK_POLL",
 	} {
 		env[k] = os.Getenv(k)
 	}
@@ -68,8 +71,18 @@ func loadFrom(env map[string]string) (Config, error) {
 		}
 		c.NotifyChatID = id
 	}
+	if v := env["BOOKMARK_POLL"]; v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("BOOKMARK_POLL must be a duration like 30m: %w", err)
+		}
+		c.BookmarkPoll = d
+	}
 	if c.APIAddr != "" && (c.APIToken == "" || c.NotifyChatID == 0) {
 		return Config{}, fmt.Errorf("API_ADDR set: API_TOKEN and NOTIFY_CHAT_ID are required")
+	}
+	if c.BookmarkPoll > 0 && (c.TwitterAuth == "" || c.TwitterCT0 == "" || c.NotifyChatID == 0) {
+		return Config{}, fmt.Errorf("BOOKMARK_POLL set: TWITTER_AUTH_TOKEN, TWITTER_CT0 and NOTIFY_CHAT_ID are required")
 	}
 	if c.TelegramToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")

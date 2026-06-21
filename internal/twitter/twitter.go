@@ -225,9 +225,27 @@ func fetchArticlePlainText(tweetID, authToken, ct0, proxy string) (string, error
 	endpoint := fmt.Sprintf("https://x.com/i/api/graphql/%s/TweetResultByRestId?variables=%s&features=%s&fieldToggles=%s",
 		articleQueryID, variables, articleFeatures, articleFieldToggles)
 
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	body, err := xGraphQLGet(endpoint, authToken, ct0, proxy)
 	if err != nil {
 		return "", err
+	}
+	var j any
+	if err := json.Unmarshal(body, &j); err != nil {
+		return "", fmt.Errorf("decode graphql: %w", err)
+	}
+	pt := findString(j, "plain_text")
+	if pt == "" {
+		return "", fmt.Errorf("plain_text not found in response")
+	}
+	return pt, nil
+}
+
+// xGraphQLGet performs an authenticated GET against X's GraphQL API using the
+// public web bearer + auth_token/ct0 cookies (no x-client-transaction-id needed).
+func xGraphQLGet(endpoint, authToken, ct0, proxy string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+webBearer)
 	req.Header.Set("x-csrf-token", ct0)
@@ -239,22 +257,74 @@ func fetchArticlePlainText(tweetID, authToken, ct0, proxy string) (string, error
 
 	resp, err := proxyClient(proxy).Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("graphql HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("graphql HTTP %d", resp.StatusCode)
+	}
+	return body, nil
+}
+
+const bookmarksQueryID = "i8QZ1qqy36ffA3bxfTaf7w"
+
+const bookmarksFeatures = `%7B%22rweb_video_screen_enabled%22%3Afalse%2C%22rweb_cashtags_enabled%22%3Atrue%2C%22profile_label_improvements_pcf_label_in_post_enabled%22%3Atrue%2C%22responsive_web_profile_redirect_enabled%22%3Afalse%2C%22rweb_tipjar_consumption_enabled%22%3Afalse%2C%22verified_phone_label_enabled%22%3Afalse%2C%22creator_subscriptions_tweet_preview_api_enabled%22%3Atrue%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22premium_content_api_read_enabled%22%3Afalse%2C%22communities_web_enable_tweet_community_results_fetch%22%3Atrue%2C%22c9s_tweet_anatomy_moderator_badge_enabled%22%3Atrue%2C%22responsive_web_grok_analyze_button_fetch_trends_enabled%22%3Afalse%2C%22responsive_web_grok_analyze_post_followups_enabled%22%3Atrue%2C%22rweb_cashtags_composer_attachment_enabled%22%3Atrue%2C%22responsive_web_jetfuel_frame%22%3Atrue%2C%22responsive_web_grok_share_attachment_enabled%22%3Atrue%2C%22responsive_web_grok_annotations_enabled%22%3Atrue%2C%22articles_preview_enabled%22%3Atrue%2C%22responsive_web_edit_tweet_api_enabled%22%3Atrue%2C%22rweb_conversational_replies_downvote_enabled%22%3Afalse%2C%22graphql_is_translatable_rweb_tweet_is_translatable_enabled%22%3Atrue%2C%22view_counts_everywhere_api_enabled%22%3Atrue%2C%22longform_notetweets_consumption_enabled%22%3Atrue%2C%22responsive_web_twitter_article_tweet_consumption_enabled%22%3Atrue%2C%22content_disclosure_indicator_enabled%22%3Atrue%2C%22content_disclosure_ai_generated_indicator_enabled%22%3Atrue%2C%22responsive_web_grok_show_grok_translated_post%22%3Atrue%2C%22responsive_web_grok_analysis_button_from_backend%22%3Atrue%2C%22post_ctas_fetch_enabled%22%3Afalse%2C%22freedom_of_speech_not_reach_fetch_enabled%22%3Atrue%2C%22standardized_nudges_misinfo%22%3Atrue%2C%22tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled%22%3Atrue%2C%22longform_notetweets_rich_text_read_enabled%22%3Atrue%2C%22longform_notetweets_inline_media_enabled%22%3Afalse%2C%22responsive_web_grok_image_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_imagine_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_community_note_auto_translation_is_enabled%22%3Atrue%2C%22responsive_web_enhance_cards_enabled%22%3Afalse%7D`
+
+var bmIDRe = regexp.MustCompile(`"entryId":"tweet-(\d+)"`)
+
+// BookmarkPage fetches one page of the authenticated user's bookmarks. It returns
+// tweet IDs (newest-first) and the bottom cursor for the next page ("" when no more).
+func BookmarkPage(authToken, ct0, proxy, cursor string) (ids []string, next string, err error) {
+	vars := `{"count":20,"includePromotedContent":true}`
+	if cursor != "" {
+		vars = fmt.Sprintf(`{"count":20,"cursor":%q,"includePromotedContent":true}`, cursor)
+	}
+	endpoint := fmt.Sprintf("https://x.com/i/api/graphql/%s/Bookmarks?variables=%s&features=%s",
+		bookmarksQueryID, url.QueryEscape(vars), bookmarksFeatures)
+	body, err := xGraphQLGet(endpoint, authToken, ct0, proxy)
+	if err != nil {
+		return nil, "", err
+	}
+	ids, next = parseBookmarks(body)
+	return ids, next, nil
+}
+
+// parseBookmarks extracts tweet IDs and the bottom (next-page) cursor from a
+// Bookmarks timeline response.
+func parseBookmarks(body []byte) (ids []string, next string) {
+	for _, m := range bmIDRe.FindAllSubmatch(body, -1) {
+		ids = append(ids, string(m[1]))
 	}
 	var j any
-	if err := json.Unmarshal(body, &j); err != nil {
-		return "", fmt.Errorf("decode graphql: %w", err)
+	if json.Unmarshal(body, &j) == nil {
+		next = findBottomCursor(j)
 	}
-	pt := findString(j, "plain_text")
-	if pt == "" {
-		return "", fmt.Errorf("plain_text not found in response")
+	return ids, next
+}
+
+// findBottomCursor returns the value of the timeline's Bottom cursor, or "".
+func findBottomCursor(o any) string {
+	switch v := o.(type) {
+	case map[string]any:
+		if v["cursorType"] == "Bottom" {
+			if s, ok := v["value"].(string); ok {
+				return s
+			}
+		}
+		for _, val := range v {
+			if s := findBottomCursor(val); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, val := range v {
+			if s := findBottomCursor(val); s != "" {
+				return s
+			}
+		}
 	}
-	return pt, nil
+	return ""
 }
 
 // findString returns the first string value under key anywhere in the decoded

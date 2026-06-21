@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -43,6 +44,9 @@ type app struct {
 	store  *jobqueue.Store
 	jobs   chan job
 	queued int64 // atomic：排队中 + 处理中的任务数，用于回执里的队列位置
+
+	bmMu   sync.Mutex      // 保护 bmSeen
+	bmSeen map[string]bool // 本次进程已入队/已存在的收藏推文 id，避免重复入队
 }
 
 func main() {
@@ -62,7 +66,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("jobqueue: %v", err)
 	}
-	a := &app{cfg: cfg, gem: gem, store: store, jobs: make(chan job, 256)}
+	a := &app{cfg: cfg, gem: gem, store: store, jobs: make(chan job, 256), bmSeen: map[string]bool{}}
 
 	// 子命令分发。任何未知参数都直接退出，避免误把 `--help` 之类的调用
 	// 当成 bot 启动（曾因此意外多跑一个实例、与正式 bot 抢 getUpdates）。
@@ -103,6 +107,9 @@ func main() {
 	go a.worker(ctx) // 单 worker 串行处理队列：避免并行大上传抢代理 + git 仓库写冲突
 	if cfg.APIAddr != "" {
 		go a.serveAPI(ctx) // iOS 快捷指令投递链接的 HTTP 端点
+	}
+	if cfg.BookmarkPoll > 0 {
+		go a.pollBookmarks(ctx) // 定时拉取 X 收藏并自动成文
 	}
 	log.Println("video-to-notes bot started")
 	b.Start(ctx)
@@ -195,6 +202,80 @@ func cleanup(paths []string) {
 	for _, p := range paths {
 		os.Remove(p)
 	}
+}
+
+// bookmarkBatch caps how many new bookmarks are enqueued per poll cycle, so a
+// large backlog drains gradually instead of flooding the queue/Telegram at once.
+const bookmarkBatch = 20
+
+// bookmarkPageCap bounds how deep a single scan paginates (pages × 20 tweets).
+const bookmarkPageCap = 25
+
+// pollBookmarks periodically scans the user's X bookmarks and enqueues new ones.
+func (a *app) pollBookmarks(ctx context.Context) {
+	t := time.NewTicker(a.cfg.BookmarkPoll)
+	defer t.Stop()
+	a.scanBookmarks(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.scanBookmarks(ctx)
+		}
+	}
+}
+
+// scanBookmarks paginates bookmarks newest-first and enqueues up to bookmarkBatch
+// not-yet-processed tweets (skipping ones already published or seen this session).
+func (a *app) scanBookmarks(ctx context.Context) {
+	cursor := ""
+	n := 0
+	for page := 0; page < bookmarkPageCap && n < bookmarkBatch; page++ {
+		ids, next, err := twitter.BookmarkPage(a.cfg.TwitterAuth, a.cfg.TwitterCT0, a.cfg.TelegramProxy, cursor)
+		if err != nil {
+			log.Printf("bookmarks: fetch page %d: %v", page, err)
+			return
+		}
+		if len(ids) == 0 {
+			break
+		}
+		for _, id := range ids {
+			if n >= bookmarkBatch {
+				break
+			}
+			if a.bmSeenAdd(id) {
+				continue // already enqueued/handled this session
+			}
+			if note.Exists(a.cfg.VaultPath, a.cfg.NoteSubdir, "twitter", id) {
+				continue // already published
+			}
+			ref := source.Ref{Kind: "twitter", URL: "https://x.com/i/status/" + id}
+			if err := a.enqueue(ctx, a.cfg.NotifyChatID, ref); err != nil {
+				log.Printf("bookmarks: enqueue %s: %v", id, err)
+				continue
+			}
+			n++
+		}
+		if next == "" || next == cursor {
+			break
+		}
+		cursor = next
+	}
+	if n > 0 {
+		log.Printf("bookmarks: enqueued %d new tweet(s)", n)
+	}
+}
+
+// bmSeenAdd marks id seen and reports whether it was already seen.
+func (a *app) bmSeenAdd(id string) bool {
+	a.bmMu.Lock()
+	defer a.bmMu.Unlock()
+	if a.bmSeen[id] {
+		return true
+	}
+	a.bmSeen[id] = true
+	return false
 }
 
 func firstRunes(s string, n int) string {
