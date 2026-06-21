@@ -23,6 +23,8 @@ type Config struct {
 	APIAddr       string // HTTP ingest 端点监听地址（如 ":8787"）；空=不启用，供 iOS 快捷指令投递链接
 	APIToken      string // ingest 端点的 Bearer token（启用 API 时必填）
 	NotifyChatID  int64  // 快捷指令触发的任务把进度/结果发到这个 Telegram 会话（启用 API 时必填）
+	TwitterAuth   string // X auth_token cookie：抓 X 长文 Article 全文（登录墙）；空=Article 跳过
+	TwitterCT0    string // X ct0 cookie（csrf），与 TwitterAuth 配套
 }
 
 // Load 从进程环境变量读取配置。
@@ -32,7 +34,7 @@ func Load() (Config, error) {
 		"TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY", "MODEL", "OPENROUTER_PROXY",
 		"VAULT_PATH", "NOTE_SUBDIR", "TMP_DIR", "GIT_SYNC",
 		"NOTE_FORMAT", "BLOG_DRAFT", "BLOG_TAG", "BLOG_BASE_URL", "TELEGRAM_PROXY",
-		"API_ADDR", "API_TOKEN", "NOTIFY_CHAT_ID",
+		"API_ADDR", "API_TOKEN", "NOTIFY_CHAT_ID", "TWITTER_AUTH_TOKEN", "TWITTER_CT0",
 	} {
 		env[k] = os.Getenv(k)
 	}
@@ -56,6 +58,8 @@ func loadFrom(env map[string]string) (Config, error) {
 		TelegramProxy: env["TELEGRAM_PROXY"],
 		APIAddr:       env["API_ADDR"],
 		APIToken:      env["API_TOKEN"],
+		TwitterAuth:   env["TWITTER_AUTH_TOKEN"],
+		TwitterCT0:    env["TWITTER_CT0"],
 	}
 	if v := env["NOTIFY_CHAT_ID"]; v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)

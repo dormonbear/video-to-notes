@@ -1,0 +1,68 @@
+- generic [ref=e2]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - dialog:
+                - group [active] [ref=e3]:
+                  - dialog [ref=e5]:
+                    - img "Loading spinner" [ref=e11]
+      - main [ref=e15]:
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - generic [ref=e20]:
+              - heading "Happening now." [level=1] [ref=e21]
+              - img "Loading spinner" [ref=e27]
+            - img [ref=e31]
+          - navigation "Footer" [ref=e35]:
+            - generic [ref=e36]:
+              - link "About" [ref=e37] [cursor=pointer]:
+                - /url: https://about.x.com
+              - generic [ref=e38]: ·
+            - generic [ref=e39]:
+              - link "Get App" [ref=e40] [cursor=pointer]:
+                - /url: https://help.x.com/using-x/download-the-x-app
+              - generic [ref=e41]: ·
+            - generic [ref=e42]:
+              - link "Grok" [ref=e43] [cursor=pointer]:
+                - /url: https://grok.com/
+              - generic [ref=e44]: ·
+            - generic [ref=e45]:
+              - link "Help" [ref=e46] [cursor=pointer]:
+                - /url: https://help.x.com
+              - generic [ref=e47]: ·
+            - generic [ref=e48]:
+              - link "Terms" [ref=e49] [cursor=pointer]:
+                - /url: https://x.com/tos
+              - generic [ref=e50]: ·
+            - generic [ref=e51]:
+              - link "Privacy" [ref=e52] [cursor=pointer]:
+                - /url: https://x.com/privacy
+              - generic [ref=e53]: ·
+            - generic [ref=e54]:
+              - link "Cookies" [ref=e55] [cursor=pointer]:
+                - /url: https://support.x.com/articles/20170514
+              - generic [ref=e56]: ·
+            - generic [ref=e57]:
+              - link "Careers" [ref=e58] [cursor=pointer]:
+                - /url: https://careers.x.com
+              - generic [ref=e59]: ·
+            - generic [ref=e60]:
+              - link "Ads & Business" [ref=e61] [cursor=pointer]:
+                - /url: https://business.x.com/advertising?ref=gl-tw-tw-twitter-advertise
+              - generic [ref=e62]: ·
+            - generic [ref=e63]:
+              - link "Developers" [ref=e64] [cursor=pointer]:
+                - /url: https://developer.x.com
+              - generic [ref=e65]: ·
+            - generic [ref=e66]:
+              - link "News" [ref=e67] [cursor=pointer]:
+                - /url: https://x.com/i/jf/stories/home
+              - generic [ref=e68]: ·
+            - generic [ref=e69]:
+              - link "Accessibility" [ref=e70] [cursor=pointer]:
+                - /url: https://help.x.com/resources/accessibility
+              - generic [ref=e71]: ·
+            - generic [ref=e72]: © 2026 X Corp.

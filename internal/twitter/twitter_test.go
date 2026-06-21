@@ -1,6 +1,9 @@
 package twitter
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTweetID(t *testing.T) {
 	cases := map[string]string{
@@ -23,20 +26,72 @@ func TestParseSyndication(t *testing.T) {
 	js := []byte(`{"text":"hello world","user":{"screen_name":"jack"},
 		"mediaDetails":[{"type":"photo","media_url_https":"https://pbs.twimg.com/a.jpg"},
 		{"type":"video","media_url_https":"https://pbs.twimg.com/poster.jpg"}]}`)
-	text, imgs, author, err := parseSyndication(js)
+	text, imgs, author, isArticle, err := parseSyndication(js)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text != "hello world" || author != "jack" {
-		t.Errorf("text/author = %q/%q", text, author)
+	if text != "hello world" || author != "jack" || isArticle {
+		t.Errorf("text/author/isArticle = %q/%q/%v", text, author, isArticle)
 	}
 	if len(imgs) != 1 || imgs[0] != "https://pbs.twimg.com/a.jpg" {
 		t.Errorf("images = %v (want only the photo)", imgs)
 	}
 }
 
+// An X Article exposes only title + preview here; isArticle must be true and the
+// cover image collected, so the caller can refuse to fabricate a full article.
+func TestParseSyndicationArticle(t *testing.T) {
+	js := []byte(`{"text":"https://t.co/abc","user":{"screen_name":"thedankoe"},
+		"article":{"title":"How to fix your life","preview_text":"If you're like me...",
+		"cover_media":{"media_info":{"original_img_url":"https://pbs.twimg.com/cover.jpg"}}}}`)
+	text, imgs, author, isArticle, err := parseSyndication(js)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isArticle {
+		t.Error("expected isArticle=true")
+	}
+	if author != "thedankoe" {
+		t.Errorf("author = %q", author)
+	}
+	if !strings.Contains(text, "How to fix your life") || !strings.Contains(text, "If you're like me") {
+		t.Errorf("article text = %q", text)
+	}
+	if len(imgs) != 1 || imgs[0] != "https://pbs.twimg.com/cover.jpg" {
+		t.Errorf("cover image not collected: %v", imgs)
+	}
+}
+
+// A tweet whose text is only a t.co link must reduce to empty (caught downstream).
+func TestParseSyndicationStripsTco(t *testing.T) {
+	js := []byte(`{"text":"https://t.co/xyz","user":{"screen_name":"a"}}`)
+	text, _, _, _, err := parseSyndication(js)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "" {
+		t.Errorf("link-only text should strip to empty, got %q", text)
+	}
+}
+
 func TestSynTokenStable(t *testing.T) {
 	if synToken("1234567890123456789") == "" {
 		t.Error("token should be non-empty")
+	}
+}
+
+func TestFindString(t *testing.T) {
+	j := map[string]any{
+		"data": map[string]any{
+			"result": []any{
+				map[string]any{"article": map[string]any{"plain_text": "full body here"}},
+			},
+		},
+	}
+	if got := findString(j, "plain_text"); got != "full body here" {
+		t.Errorf("findString = %q, want %q", got, "full body here")
+	}
+	if got := findString(j, "missing"); got != "" {
+		t.Errorf("missing key should yield empty, got %q", got)
 	}
 }

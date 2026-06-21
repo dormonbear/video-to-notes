@@ -1,0 +1,69 @@
+- generic [ref=e2]:
+  - generic:
+    - generic:
+      - heading "要查看键盘快捷键，按下问号 查看键盘快捷键" [level=2] [ref=e3]:
+        - generic [ref=e4]: 要查看键盘快捷键，按下问号
+        - link "查看键盘快捷键" [ref=e5] [cursor=pointer]:
+          - /url: /i/keyboard_shortcuts
+      - generic:
+        - generic:
+          - button "Grok" [ref=e6] [cursor=pointer]:
+            - img [ref=e7]
+          - button "聊天" [ref=e10] [cursor=pointer]:
+            - img [ref=e11]
+      - generic [ref=e14]:
+        - banner [ref=e15]:
+          - generic [ref=e17]:
+            - generic [ref=e18]:
+              - heading "X" [level=1] [ref=e20] [cursor=pointer]:
+                - link "X" [ref=e21]:
+                  - /url: /home
+                  - img [ref=e23]
+              - navigation "主要" [ref=e27]:
+                - link "主页" [ref=e28] [cursor=pointer]:
+                  - /url: /home
+                  - img [ref=e31]
+                - link "搜索和发现" [ref=e34] [cursor=pointer]:
+                  - /url: /explore
+                  - img [ref=e37]
+                - link "通知" [ref=e40] [cursor=pointer]:
+                  - /url: /notifications
+                  - img [ref=e43]
+                - link "关注" [ref=e46] [cursor=pointer]:
+                  - /url: /i/connect_people
+                  - img [ref=e49]
+                - link "私信" [ref=e52] [cursor=pointer]:
+                  - /url: /i/chat
+                  - img [ref=e55]
+                - link "Grok" [ref=e58] [cursor=pointer]:
+                  - /url: /i/grok
+                  - generic [ref=e60]:
+                    - img [ref=e61]
+                    - generic "undefined 条未读项目" [ref=e64]
+                - link "书签" [ref=e65] [cursor=pointer]:
+                  - /url: /i/bookmarks
+                  - img [ref=e68]
+                - link "创作者工作室" [ref=e71] [cursor=pointer]:
+                  - /url: /i/jf/creators/studio
+                  - img [ref=e74]
+                - link "Premium" [ref=e78] [cursor=pointer]:
+                  - /url: /i/premium_sign_up
+                  - img [ref=e81]
+                - link "个人资料" [ref=e84] [cursor=pointer]:
+                  - /url: /dormonbear
+                  - img [ref=e87]
+                - button "更多菜单项" [ref=e90] [cursor=pointer]:
+                  - img [ref=e93]
+              - link "发帖" [ref=e97] [cursor=pointer]:
+                - /url: /compose/post
+                - img [ref=e99]
+            - button "账号菜单" [ref=e105] [cursor=pointer]:
+              - generic [ref=e113]:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic "Dormon Zhou":
+                        - img "Dormon Zhou"
+        - main [ref=e116]:
+          - progressbar "加载中" [ref=e119]:
+            - img [ref=e121]

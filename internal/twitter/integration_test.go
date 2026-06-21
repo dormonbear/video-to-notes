@@ -14,7 +14,8 @@ func TestFetchLive(t *testing.T) {
 	if proxy == "" {
 		t.Skip("set TWITTER_PROXY to run the live twitter fetch test")
 	}
-	item, err := Fetch("https://x.com/Interior/status/463440424141459456", proxy, t.TempDir())
+	item, err := Fetch("https://x.com/Interior/status/463440424141459456", proxy, t.TempDir(),
+		os.Getenv("TWITTER_AUTH_TOKEN"), os.Getenv("TWITTER_CT0"))
 	if err != nil {
 		t.Fatal(err)
 	}

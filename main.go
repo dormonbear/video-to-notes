@@ -175,7 +175,7 @@ func (a *app) selfTest(ctx context.Context, shareText, date string) {
 func (a *app) fetch(ref source.Ref) (source.Item, error) {
 	switch ref.Kind {
 	case "twitter":
-		return twitter.Fetch(ref.URL, a.cfg.TelegramProxy, a.cfg.TmpDir)
+		return twitter.Fetch(ref.URL, a.cfg.TelegramProxy, a.cfg.TmpDir, a.cfg.TwitterAuth, a.cfg.TwitterCT0)
 	case "web":
 		return web.Fetch(ref.URL, a.cfg.TmpDir)
 	default: // douyin

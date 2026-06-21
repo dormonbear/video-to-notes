@@ -23,6 +23,10 @@ import (
 	"video-to-notes/internal/source"
 )
 
+// minTweetText is the floor (in runes) below which a text-only tweet is rejected:
+// too little real content to write a faithful article (would just be fabricated).
+const minTweetText = 50
+
 var idRe = regexp.MustCompile(`/status/(\d+)`)
 
 func tweetID(rawURL string) (string, error) {
@@ -65,7 +69,13 @@ func base36(f float64) string {
 	return ip + "." + fp.String()
 }
 
-func parseSyndication(jsonBytes []byte) (text string, images []string, author string, err error) {
+var tcoRe = regexp.MustCompile(`https?://t\.co/\w+`)
+
+// parseSyndication extracts the best available text, image URLs, author, and
+// whether the tweet is an X long-form Article. For Articles the endpoint exposes
+// only title + a short preview (the full body needs login), so isArticle lets the
+// caller refuse to fabricate a full article from a teaser.
+func parseSyndication(jsonBytes []byte) (text string, images []string, author string, isArticle bool, err error) {
 	var t struct {
 		Text string `json:"text"`
 		User struct {
@@ -75,21 +85,44 @@ func parseSyndication(jsonBytes []byte) (text string, images []string, author st
 			Type          string `json:"type"`
 			MediaURLHTTPS string `json:"media_url_https"`
 		} `json:"mediaDetails"`
+		Article *struct {
+			Title       string `json:"title"`
+			PreviewText string `json:"preview_text"`
+			CoverMedia  struct {
+				MediaInfo struct {
+					OriginalImgURL string `json:"original_img_url"`
+				} `json:"media_info"`
+			} `json:"cover_media"`
+		} `json:"article"`
 	}
 	if err = json.Unmarshal(jsonBytes, &t); err != nil {
-		return "", nil, "", fmt.Errorf("parse syndication json: %w", err)
+		return "", nil, "", false, fmt.Errorf("parse syndication json: %w", err)
 	}
+	author = t.User.ScreenName
 	for _, m := range t.MediaDetails {
 		if m.Type == "photo" && m.MediaURLHTTPS != "" {
 			images = append(images, m.MediaURLHTTPS)
 		}
 	}
-	return t.Text, images, t.User.ScreenName, nil
+	if t.Article != nil {
+		isArticle = true
+		text = strings.TrimSpace(t.Article.Title + "\n" + t.Article.PreviewText)
+		if u := t.Article.CoverMedia.MediaInfo.OriginalImgURL; u != "" {
+			images = append(images, u)
+		}
+	} else {
+		text = t.Text
+	}
+	// Drop bare t.co links so a link-only tweet reads as empty (caught by the guard).
+	text = strings.TrimSpace(tcoRe.ReplaceAllString(text, ""))
+	return text, images, author, isArticle, nil
 }
 
 // Fetch tries yt-dlp (video tweets) then the syndication endpoint (text+image
-// tweets). All HTTP/yt-dlp traffic uses proxy.
-func Fetch(rawURL, proxy, tmpDir string) (source.Item, error) {
+// tweets). For X long-form Articles, whose full body is login-walled, it uses the
+// authenticated GraphQL endpoint when auth cookies are configured. All HTTP/yt-dlp
+// traffic uses proxy.
+func Fetch(rawURL, proxy, tmpDir, authToken, ct0 string) (source.Item, error) {
 	id, err := tweetID(rawURL)
 	if err != nil {
 		return source.Item{}, err
@@ -104,13 +137,27 @@ func Fetch(rawURL, proxy, tmpDir string) (source.Item, error) {
 		return item, nil
 	}
 
-	// 2) syndication — text + images.
-	text, images, author, err := fetchSyndication(id, proxy)
+	// 2) syndication — text + images (+ detects X Articles).
+	text, images, author, isArticle, err := fetchSyndication(id, proxy)
 	if err != nil {
 		return source.Item{}, fmt.Errorf("twitter fallback: %w", err)
 	}
 	meta.Author = author
 	meta.Title = firstLine(text)
+
+	// X Articles: syndication gives only title+preview. Fetch the full body via the
+	// authenticated GraphQL endpoint; without cookies, skip rather than fabricate.
+	if isArticle {
+		if authToken == "" || ct0 == "" {
+			return source.Item{}, fmt.Errorf("X 长文需登录 cookie（未配置 TWITTER_AUTH_TOKEN/TWITTER_CT0）")
+		}
+		full, err := fetchArticlePlainText(id, authToken, ct0, proxy)
+		if err != nil {
+			return source.Item{}, fmt.Errorf("X 长文抓取失败（cookie 可能已过期，请更新）：%w", err)
+		}
+		text = strings.TrimSpace(meta.Title + "\n\n" + full)
+	}
+
 	var paths []string
 	for i, u := range images {
 		p := filepath.Join(tmpDir, fmt.Sprintf("%s-%d.jpg", id, i))
@@ -118,8 +165,9 @@ func Fetch(rawURL, proxy, tmpDir string) (source.Item, error) {
 			paths = append(paths, p)
 		}
 	}
-	if text == "" && len(paths) == 0 {
-		return source.Item{}, fmt.Errorf("tweet %s has no text or media", id)
+	// Guard: without enough real text and no media, analysis would just hallucinate.
+	if len([]rune(text)) < minTweetText && len(paths) == 0 {
+		return source.Item{}, fmt.Errorf("推文内容过少（%d 字、无媒体），跳过以免生成不实内容", len([]rune(text)))
 	}
 	kind := ""
 	if len(paths) > 0 {
@@ -159,11 +207,84 @@ func fetchVideo(rawURL, proxy, tmpDir string, meta source.Meta) (source.Item, bo
 	return source.Item{Kind: "twitter", Meta: meta, MediaPaths: []string{dst}, MediaKind: "video"}, true
 }
 
-func fetchSyndication(id, proxy string) (text string, images []string, author string, err error) {
+// X web app public bearer + the TweetResultByRestId query.
+// ponytail: articleQueryID/articleFeatures track X's web build and may rotate; if
+// Article fetches start 404/400-ing, recapture them from a logged-in browser's
+// network tab. plain_text needs only auth cookies — no x-client-transaction-id.
+const (
+	webBearer           = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs=1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+	articleQueryID      = "8CEYnZhCp0dx9DFyyEBlbQ"
+	articleFeatures     = `%7B%22creator_subscriptions_tweet_preview_api_enabled%22%3Atrue%2C%22premium_content_api_read_enabled%22%3Afalse%2C%22communities_web_enable_tweet_community_results_fetch%22%3Atrue%2C%22c9s_tweet_anatomy_moderator_badge_enabled%22%3Atrue%2C%22responsive_web_grok_analyze_button_fetch_trends_enabled%22%3Afalse%2C%22responsive_web_grok_analyze_post_followups_enabled%22%3Atrue%2C%22rweb_cashtags_composer_attachment_enabled%22%3Atrue%2C%22responsive_web_jetfuel_frame%22%3Atrue%2C%22responsive_web_grok_share_attachment_enabled%22%3Atrue%2C%22responsive_web_grok_annotations_enabled%22%3Atrue%2C%22articles_preview_enabled%22%3Atrue%2C%22responsive_web_edit_tweet_api_enabled%22%3Atrue%2C%22rweb_conversational_replies_downvote_enabled%22%3Afalse%2C%22graphql_is_translatable_rweb_tweet_is_translatable_enabled%22%3Atrue%2C%22view_counts_everywhere_api_enabled%22%3Atrue%2C%22longform_notetweets_consumption_enabled%22%3Atrue%2C%22responsive_web_twitter_article_tweet_consumption_enabled%22%3Atrue%2C%22content_disclosure_indicator_enabled%22%3Atrue%2C%22content_disclosure_ai_generated_indicator_enabled%22%3Atrue%2C%22responsive_web_grok_show_grok_translated_post%22%3Atrue%2C%22responsive_web_grok_analysis_button_from_backend%22%3Atrue%2C%22post_ctas_fetch_enabled%22%3Afalse%2C%22rweb_cashtags_enabled%22%3Atrue%2C%22freedom_of_speech_not_reach_fetch_enabled%22%3Atrue%2C%22standardized_nudges_misinfo%22%3Atrue%2C%22tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled%22%3Atrue%2C%22longform_notetweets_rich_text_read_enabled%22%3Atrue%2C%22longform_notetweets_inline_media_enabled%22%3Afalse%2C%22profile_label_improvements_pcf_label_in_post_enabled%22%3Atrue%2C%22responsive_web_profile_redirect_enabled%22%3Afalse%2C%22rweb_tipjar_consumption_enabled%22%3Afalse%2C%22verified_phone_label_enabled%22%3Afalse%2C%22responsive_web_grok_image_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_imagine_annotation_enabled%22%3Atrue%2C%22responsive_web_grok_community_note_auto_translation_is_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%7D`
+	articleFieldToggles = `%7B%22withArticleRichContentState%22%3Afalse%2C%22withArticlePlainText%22%3Atrue%2C%22withArticleSummaryText%22%3Atrue%2C%22withArticleVoiceOver%22%3Afalse%7D`
+)
+
+// fetchArticlePlainText gets an X Article's full body via the authenticated
+// GraphQL endpoint (plain_text field). Needs auth_token + ct0 cookies.
+func fetchArticlePlainText(tweetID, authToken, ct0, proxy string) (string, error) {
+	variables := url.QueryEscape(`{"tweetId":"` + tweetID + `","includePromotedContent":true,"withBirdwatchNotes":true,"withVoice":true,"withCommunity":true}`)
+	endpoint := fmt.Sprintf("https://x.com/i/api/graphql/%s/TweetResultByRestId?variables=%s&features=%s&fieldToggles=%s",
+		articleQueryID, variables, articleFeatures, articleFieldToggles)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+webBearer)
+	req.Header.Set("x-csrf-token", ct0)
+	req.Header.Set("x-twitter-auth-type", "OAuth2Session")
+	req.Header.Set("x-twitter-active-user", "yes")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("Cookie", "auth_token="+authToken+"; ct0="+ct0)
+
+	resp, err := proxyClient(proxy).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("graphql HTTP %d", resp.StatusCode)
+	}
+	var j any
+	if err := json.Unmarshal(body, &j); err != nil {
+		return "", fmt.Errorf("decode graphql: %w", err)
+	}
+	pt := findString(j, "plain_text")
+	if pt == "" {
+		return "", fmt.Errorf("plain_text not found in response")
+	}
+	return pt, nil
+}
+
+// findString returns the first string value under key anywhere in the decoded
+// JSON tree (the article body nests deep and the path shifts between builds).
+func findString(o any, key string) string {
+	switch v := o.(type) {
+	case map[string]any:
+		if s, ok := v[key].(string); ok && s != "" {
+			return s
+		}
+		for _, val := range v {
+			if s := findString(val, key); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, val := range v {
+			if s := findString(val, key); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func fetchSyndication(id, proxy string) (text string, images []string, author string, isArticle bool, err error) {
 	endpoint := fmt.Sprintf("https://cdn.syndication.twimg.com/tweet-result?id=%s&token=%s&lang=en", id, synToken(id))
 	body, err := httpGet(endpoint, proxy)
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", false, err
 	}
 	return parseSyndication(body)
 }
