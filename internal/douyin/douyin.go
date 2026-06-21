@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+
+	"video-to-notes/internal/source"
 )
 
 // ErrNoURL 表示消息文本里没有抖音链接。
@@ -86,7 +88,7 @@ func Fetch(shareText, destDir string) (string, Meta, error) {
 	defer os.Remove(videoPath) // 压制后就删原视频
 
 	outPath := filepath.Join(destDir, info.ID+".small.mp4")
-	if err := transcode(videoPath, outPath); err != nil {
+	if err := Transcode(videoPath, outPath); err != nil {
 		return "", Meta{}, err
 	}
 
@@ -97,8 +99,22 @@ func Fetch(shareText, destDir string) (string, Meta, error) {
 	return outPath, Meta{Title: info.Title, Author: author, SourceURL: info.WebpageURL, ID: info.ID}, nil
 }
 
-// transcode 用递进的压制档位生成小体积 mp4：先 480p，若仍超上限再降到 360p。
-func transcode(src, dst string) error {
+// FetchItem runs Fetch and wraps the result as a source.Item (video media kind).
+func FetchItem(shareText, destDir string) (source.Item, error) {
+	path, m, err := Fetch(shareText, destDir)
+	if err != nil {
+		return source.Item{}, err
+	}
+	return source.Item{
+		Kind:       "douyin",
+		Meta:       source.Meta{Title: m.Title, Author: m.Author, SourceURL: m.SourceURL, ID: m.ID},
+		MediaPaths: []string{path},
+		MediaKind:  "video",
+	}, nil
+}
+
+// Transcode 用递进的压制档位生成小体积 mp4：先 480p，若仍超上限再降到 360p。
+func Transcode(src, dst string) error {
 	profiles := []struct{ scale, crf string }{
 		{"480", "28"},
 		{"360", "32"},

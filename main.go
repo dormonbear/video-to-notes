@@ -21,14 +21,19 @@ import (
 	"video-to-notes/internal/jobqueue"
 	"video-to-notes/internal/llm"
 	"video-to-notes/internal/note"
+	"video-to-notes/internal/prompt"
+	"video-to-notes/internal/source"
+	"video-to-notes/internal/twitter"
+	"video-to-notes/internal/web"
 )
 
-// job 是一条待处理的抖音链接任务。
+// job 是一条待处理的抓取任务（抖音/Twitter/网页）。
 type job struct {
 	id       string // chatID:statusID，持久化主键
 	chatID   int64
 	statusID int // 队列回执消息 id，后续编辑它显示进度
 	url      string
+	kind     string // douyin | twitter | web
 }
 
 type app struct {
@@ -122,23 +127,31 @@ func (a *app) recover(ctx context.Context) {
 		a.b.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID: p.ChatID, MessageID: p.StatusID, Text: "♻️ 重启后恢复，排队中…",
 		})
-		a.jobs <- job{id: p.ID, chatID: p.ChatID, statusID: p.StatusID, url: p.URL}
+		kind := p.Kind
+		if kind == "" {
+			kind = "douyin" // legacy queue entries predate the kind field
+		}
+		a.jobs <- job{id: p.ID, chatID: p.ChatID, statusID: p.StatusID, url: p.URL, kind: kind}
 	}
 }
 
 // selfTest 跑完整链路并把结果打到 stdout，用于服务器端真实验证（无需 Telegram）。
-// date 非空时覆盖发布时间（ISO 8601），用于按原日期就地重生成已有文章。
+// 接受任意来源的 URL/分享文本。date 非空时覆盖发布时间（ISO 8601）。
 func (a *app) selfTest(ctx context.Context, shareText, date string) {
-	mediaPath, meta, err := douyin.Fetch(shareText, a.cfg.TmpDir)
+	refs := source.Classify(shareText)
+	if len(refs) == 0 {
+		log.Fatalf("no supported URL in input")
+	}
+	item, err := a.fetch(refs[0])
 	if err != nil {
-		log.Fatalf("download failed: %v", err)
+		log.Fatalf("fetch failed: %v", err)
 	}
-	defer os.Remove(mediaPath)
-	if fi, err := os.Stat(mediaPath); err == nil {
-		log.Printf("media ready: %s (%.2f MB)", mediaPath, float64(fi.Size())/(1<<20))
-	}
+	defer cleanup(item.MediaPaths)
 
-	data, err := a.gem.Analyze(ctx, mediaPath)
+	data, err := a.gem.Analyze(ctx, llm.Content{
+		Prompt: promptFor(item.MediaKind), Text: item.Text,
+		MediaKind: item.MediaKind, MediaPaths: item.MediaPaths,
+	})
 	if err != nil {
 		log.Fatalf("analyze failed: %v", err)
 	}
@@ -147,15 +160,41 @@ func (a *app) selfTest(ctx context.Context, shareText, date string) {
 		date = time.Now().Format(time.RFC3339)
 	}
 	relPath, err := note.Write(note.Input{
-		Title: meta.Title, Author: meta.Author, SourceURL: meta.SourceURL,
-		VideoID: meta.ID, Date: date, Data: data,
+		Source: item.Kind, Title: item.Meta.Title, Author: item.Meta.Author,
+		SourceURL: item.Meta.SourceURL, VideoID: item.Meta.ID, Date: date, Data: data,
 	}, note.Options{Format: a.cfg.NoteFormat, Draft: a.cfg.BlogDraft, Tag: a.cfg.BlogTag},
 		a.cfg.VaultPath, a.cfg.NoteSubdir)
 	if err != nil {
 		log.Fatalf("write failed: %v", err)
 	}
-	fmt.Printf("\n===== SELFTEST OK =====\ntitle: %s\nsummary: %s\ntags: %v\nfile: %s\n--- article (first 600 runes) ---\n%s\n",
-		data.Title, data.Summary, data.Tags, relPath, firstRunes(data.Article, 600))
+	fmt.Printf("\n===== SELFTEST OK =====\nkind: %s\ntitle: %s\nsummary: %s\ntags: %v\nfile: %s\n--- article (first 600 runes) ---\n%s\n",
+		item.Kind, data.Title, data.Summary, data.Tags, relPath, firstRunes(data.Article, 600))
+}
+
+// fetch dispatches to the per-source fetcher by kind.
+func (a *app) fetch(ref source.Ref) (source.Item, error) {
+	switch ref.Kind {
+	case "twitter":
+		return twitter.Fetch(ref.URL, a.cfg.TelegramProxy, a.cfg.TmpDir)
+	case "web":
+		return web.Fetch(ref.URL, a.cfg.TmpDir)
+	default: // douyin
+		return douyin.FetchItem(ref.URL, a.cfg.TmpDir)
+	}
+}
+
+// promptFor picks the analysis prompt by media kind.
+func promptFor(mediaKind string) string {
+	if mediaKind == "video" {
+		return prompt.VideoNote
+	}
+	return prompt.TextNote
+}
+
+func cleanup(paths []string) {
+	for _, p := range paths {
+		os.Remove(p)
+	}
 }
 
 func firstRunes(s string, n int) string {
@@ -173,16 +212,16 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 	chatID := update.Message.Chat.ID
 
-	urls := douyin.ExtractURLs(update.Message.Text)
-	if len(urls) == 0 {
+	refs := source.Classify(update.Message.Text)
+	if len(refs) == 0 {
 		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID, Text: "没找到抖音链接，请把分享口令或链接发给我。",
+			ChatID: chatID, Text: "没找到可处理的链接，请发抖音 / Twitter / 网页链接。",
 		})
 		return
 	}
 
-	for _, u := range urls {
-		if err := a.enqueue(ctx, chatID, u); err != nil {
+	for _, ref := range refs {
+		if err := a.enqueue(ctx, chatID, ref); err != nil {
 			log.Printf("send queue ack to chat %d: %v", chatID, err)
 		}
 	}
@@ -190,7 +229,7 @@ func (a *app) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 // enqueue 向 chatID 发一条队列回执、把任务落盘、推给 worker。Telegram handler
 // 和 HTTP ingest 端点共用它，保证两条入口走完全相同的处理/持久化/恢复链路。
-func (a *app) enqueue(ctx context.Context, chatID int64, u string) error {
+func (a *app) enqueue(ctx context.Context, chatID int64, ref source.Ref) error {
 	pos := atomic.AddInt64(&a.queued, 1)
 	text := "✅ 已加入队列，开始处理…"
 	if pos > 1 {
@@ -201,8 +240,8 @@ func (a *app) enqueue(ctx context.Context, chatID int64, u string) error {
 		atomic.AddInt64(&a.queued, -1)
 		return err
 	}
-	j := job{id: fmt.Sprintf("%d:%d", chatID, status.ID), chatID: chatID, statusID: status.ID, url: u}
-	if err := a.store.MarkQueued(jobqueue.Job{ID: j.id, ChatID: j.chatID, StatusID: j.statusID, URL: j.url}); err != nil {
+	j := job{id: fmt.Sprintf("%d:%d", chatID, status.ID), chatID: chatID, statusID: status.ID, url: ref.URL, kind: ref.Kind}
+	if err := a.store.MarkQueued(jobqueue.Job{ID: j.id, ChatID: j.chatID, StatusID: j.statusID, URL: j.url, Kind: j.kind}); err != nil {
 		log.Printf("jobqueue mark queued %s: %v", j.id, err) // 尽力而为：落盘失败仍走内存队列
 	}
 	a.jobs <- j
@@ -241,23 +280,26 @@ func (a *app) process(ctx context.Context, j job) error {
 		})
 	}
 
-	edit("⬇️ 下载视频中…")
-	mediaPath, meta, err := douyin.Fetch(j.url, a.cfg.TmpDir)
+	edit("⬇️ 抓取中…")
+	item, err := a.fetch(source.Ref{Kind: j.kind, URL: j.url})
 	if err != nil {
-		edit(fmt.Sprintf("❌ 下载失败：%v", err))
+		edit(fmt.Sprintf("❌ 抓取失败：%v", err))
 		return err
 	}
-	defer os.Remove(mediaPath)
+	defer cleanup(item.MediaPaths)
 
-	// 去重：同一视频已发布过就跳过（短链/规范链都解析到同一 id，含跨天）。
-	// 在下载后、Gemini 分析前检查——下载很便宜，省下的是分析费用与重复发布。
-	if a.cfg.NoteFormat == "blog" && note.Exists(a.cfg.VaultPath, a.cfg.NoteSubdir, meta.ID) {
-		edit("ℹ️ 该视频已发布过，跳过")
+	// 去重：同一内容已发布过就跳过（按 source+id，含跨天）。
+	// 在抓取后、Gemini 分析前检查——抓取很便宜，省下的是分析费用与重复发布。
+	if a.cfg.NoteFormat == "blog" && note.Exists(a.cfg.VaultPath, a.cfg.NoteSubdir, item.Kind, item.Meta.ID) {
+		edit("ℹ️ 该内容已发布过，跳过")
 		return nil
 	}
 
 	edit("🧠 Gemini 分析中…")
-	data, err := a.gem.Analyze(ctx, mediaPath)
+	data, err := a.gem.Analyze(ctx, llm.Content{
+		Prompt: promptFor(item.MediaKind), Text: item.Text,
+		MediaKind: item.MediaKind, MediaPaths: item.MediaPaths,
+	})
 	if err != nil {
 		edit(fmt.Sprintf("❌ 分析失败：%v", err))
 		return err
@@ -269,10 +311,11 @@ func (a *app) process(ctx context.Context, j job) error {
 		date = time.Now().Format(time.RFC3339)
 	}
 	relPath, err := note.Write(note.Input{
-		Title:     meta.Title,
-		Author:    meta.Author,
-		SourceURL: meta.SourceURL,
-		VideoID:   meta.ID,
+		Source:    item.Kind,
+		Title:     item.Meta.Title,
+		Author:    item.Meta.Author,
+		SourceURL: item.Meta.SourceURL,
+		VideoID:   item.Meta.ID,
 		Date:      date,
 		Data:      data,
 	}, note.Options{

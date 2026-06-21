@@ -14,10 +14,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"video-to-notes/internal/note"
-	"video-to-notes/internal/prompt"
 )
 
 const endpoint = "https://openrouter.ai/api/v1/chat/completions"
@@ -85,27 +85,57 @@ func noteSchema() map[string]any {
 	}
 }
 
-// Analyze base64-encodes the video, sends it to the model and returns structured note data.
-// The video is sent as a data URL via the video_url content part. base64 video is only
-// accepted by Gemini on Vertex AI (AI Studio requires a YouTube link), so the request
-// pins the provider to google-vertex with fallbacks disabled.
-func (c *Client) Analyze(ctx context.Context, videoPath string) (note.Data, error) {
-	raw, err := os.ReadFile(videoPath)
-	if err != nil {
-		return note.Data{}, fmt.Errorf("read video: %w", err)
-	}
-	dataURL := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(raw)
+// Content is the analysis payload: a prompt, optional text context, and zero or
+// more local media files of a single MediaKind ("video" | "image" | "").
+type Content struct {
+	Prompt     string
+	Text       string
+	MediaKind  string
+	MediaPaths []string
+}
 
+// buildContentParts turns Content into OpenAI-style content parts. Media is
+// base64-inlined as a data URL (video_url for video, image_url for images).
+func buildContentParts(in Content) ([]any, error) {
+	text := in.Prompt
+	if strings.TrimSpace(in.Text) != "" {
+		text += "\n\n以下是素材内容：\n" + in.Text
+	}
+	parts := []any{map[string]any{"type": "text", "text": text}}
+	for _, p := range in.MediaPaths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return nil, fmt.Errorf("read media %s: %w", p, err)
+		}
+		b64 := base64.StdEncoding.EncodeToString(raw)
+		switch in.MediaKind {
+		case "video":
+			parts = append(parts, map[string]any{"type": "video_url",
+				"video_url": map[string]any{"url": "data:video/mp4;base64," + b64}})
+		case "image":
+			mime := http.DetectContentType(raw)
+			parts = append(parts, map[string]any{"type": "image_url",
+				"image_url": map[string]any{"url": "data:" + mime + ";base64," + b64}})
+		default:
+			return nil, fmt.Errorf("media supplied but MediaKind is %q", in.MediaKind)
+		}
+	}
+	return parts, nil
+}
+
+// Analyze sends the content payload to the model and returns structured note data.
+// Media is base64-inlined; base64 video/images are only accepted by Gemini on
+// Vertex AI (AI Studio requires a YouTube link), so the request pins the provider
+// to google-vertex with fallbacks disabled.
+func (c *Client) Analyze(ctx context.Context, in Content) (note.Data, error) {
+	parts, err := buildContentParts(in)
+	if err != nil {
+		return note.Data{}, err
+	}
 	reqBody := map[string]any{
 		"model": c.model,
 		"messages": []any{
-			map[string]any{
-				"role": "user",
-				"content": []any{
-					map[string]any{"type": "text", "text": prompt.VideoNote},
-					map[string]any{"type": "video_url", "video_url": map[string]any{"url": dataURL}},
-				},
-			},
+			map[string]any{"role": "user", "content": parts},
 		},
 		"response_format": noteSchema(),
 		"provider":        map[string]any{"order": []string{"google-vertex"}, "allow_fallbacks": false},

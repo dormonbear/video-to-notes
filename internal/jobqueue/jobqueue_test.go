@@ -106,3 +106,18 @@ func TestLoadPendingMissingFile(t *testing.T) {
 		t.Fatalf("want 0 pending, got %d", len(got))
 	}
 }
+
+func TestJobKindRoundTrip(t *testing.T) {
+	s := open(t)
+	j := Job{ID: "1:2", ChatID: 1, StatusID: 2, URL: "https://example.com", Kind: "web"}
+	if err := s.MarkQueued(j); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := s.LoadPending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Kind != "web" {
+		t.Fatalf("kind not preserved: %+v", pending)
+	}
+}

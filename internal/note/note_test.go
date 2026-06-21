@@ -77,7 +77,8 @@ func TestRenderBlogFrontmatterValid(t *testing.T) {
 func TestWriteBlogFilenameIsAsciiSlug(t *testing.T) {
 	dir := t.TempDir()
 	rel, err := Write(Input{
-		Title: "无所谓", Author: "夜航船", SourceURL: "https://v.douyin.com/x/",
+		Source: "douyin",
+		Title:  "无所谓", Author: "夜航船", SourceURL: "https://v.douyin.com/x/",
 		VideoID: "7650479446944032101", Date: "2026-06-14T06:06:00Z",
 		Data: Data{Title: "标题", Summary: "s", Tags: []string{"a"}, Article: "正文"},
 	}, Options{Format: "blog", Tag: "video-note"}, dir, "src/content/blog")
@@ -121,5 +122,26 @@ func TestRenderEscapesUnsafeFrontmatter(t *testing.T) {
 	// The title line must be a single quoted scalar with no raw newline and no comment truncation.
 	if !strings.Contains(md, `title: "踩过的坑 #agent: 第一行 第二行"`) {
 		t.Errorf("title not safely quoted/escaped:\n%s", md)
+	}
+}
+
+func TestRenderBlogSourceLine(t *testing.T) {
+	cases := []struct {
+		source, author, title, url, want string
+	}{
+		{"douyin", "张三", "", "https://v.douyin.com/x", "> 来源：[抖音 @张三](https://v.douyin.com/x)"},
+		{"twitter", "jack", "", "https://x.com/jack/status/1", "> 来源：[X @jack](https://x.com/jack/status/1)"},
+		{"web", "", "某篇文章", "https://example.com/p", "> 来源：[某篇文章](https://example.com/p)"},
+		{"web", "", "", "https://example.com/p", "> 来源：[example.com](https://example.com/p)"},
+	}
+	for _, c := range cases {
+		out := renderBlog(Input{
+			Source: c.source, Author: c.author, Title: c.title, SourceURL: c.url,
+			Date: "2026-06-20T00:00:00Z",
+			Data: Data{Title: "T", Summary: "S", Tags: []string{"a"}, Article: "body"},
+		}, Options{Tag: "video-note"})
+		if !strings.Contains(out, c.want) {
+			t.Errorf("source=%s: missing %q in:\n%s", c.source, c.want, out)
+		}
 	}
 }

@@ -31,3 +31,9 @@ func TestExtractURLs(t *testing.T) {
 		t.Errorf("expected 0 urls for no-link text, got %d", n)
 	}
 }
+
+func TestFetchItemNoURL(t *testing.T) {
+	if _, err := FetchItem("no link here", t.TempDir()); err == nil {
+		t.Fatal("want error when no douyin url present")
+	}
+}

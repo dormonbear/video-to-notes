@@ -67,10 +67,10 @@ NOTIFY_CHAT_ID=<你和 bot 私聊的 chat id>
 POST /ingest
 Authorization: Bearer <API_TOKEN>
 Body（取第一个非空）：表单字段 text → 表单字段 q → 原始 body
-     —— 任意含抖音链接的文本，分享口令也行，自动提取
+     —— 任意含抖音 / Twitter / 网页链接的文本，分享口令也行，自动提取分类
 
 200  ✅ 已加入队列（N 个链接），进度看 Telegram
-400  no douyin link found
+400  no supported link found
 401  unauthorized
 405  method not allowed
 ```
