@@ -27,6 +27,7 @@ type Record struct {
 	ChatID   int64  `json:"chat_id,omitempty"`
 	StatusID int    `json:"status_id,omitempty"`
 	URL      string `json:"url,omitempty"`
+	Kind     string `json:"kind,omitempty"` // douyin | twitter | web ("" = legacy douyin)
 }
 
 // Job is a unit of work recovered from the log.
@@ -35,6 +36,7 @@ type Job struct {
 	ChatID   int64
 	StatusID int
 	URL      string
+	Kind     string
 }
 
 type Store struct {
@@ -68,7 +70,7 @@ func (s *Store) Append(r Record) error {
 }
 
 func (s *Store) MarkQueued(j Job) error {
-	return s.Append(Record{ID: j.ID, Event: Queued, ChatID: j.ChatID, StatusID: j.StatusID, URL: j.URL})
+	return s.Append(Record{ID: j.ID, Event: Queued, ChatID: j.ChatID, StatusID: j.StatusID, URL: j.URL, Kind: j.Kind})
 }
 
 func (s *Store) MarkDone(id string) error   { return s.Append(Record{ID: id, Event: Done}) }
@@ -107,7 +109,7 @@ func (s *Store) LoadPending() ([]Job, error) {
 			if _, ok := pending[r.ID]; !ok {
 				order = append(order, r.ID)
 			}
-			pending[r.ID] = Job{ID: r.ID, ChatID: r.ChatID, StatusID: r.StatusID, URL: r.URL}
+			pending[r.ID] = Job{ID: r.ID, ChatID: r.ChatID, StatusID: r.StatusID, URL: r.URL, Kind: r.Kind}
 		case Done, Failed:
 			delete(pending, r.ID)
 		}
@@ -138,7 +140,7 @@ func (s *Store) Compact(pending []Job) error {
 	}
 	w := bufio.NewWriter(f)
 	for _, j := range pending {
-		line, err := json.Marshal(Record{ID: j.ID, Event: Queued, ChatID: j.ChatID, StatusID: j.StatusID, URL: j.URL})
+		line, err := json.Marshal(Record{ID: j.ID, Event: Queued, ChatID: j.ChatID, StatusID: j.StatusID, URL: j.URL, Kind: j.Kind})
 		if err != nil {
 			f.Close()
 			return err

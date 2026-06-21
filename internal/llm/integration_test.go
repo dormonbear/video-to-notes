@@ -6,6 +6,8 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"video-to-notes/internal/prompt"
 )
 
 func TestAnalyzeRealVideo(t *testing.T) {
@@ -24,7 +26,9 @@ func TestAnalyzeRealVideo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := c.Analyze(context.Background(), video)
+	d, err := c.Analyze(context.Background(), Content{
+		Prompt: prompt.VideoNote, MediaKind: "video", MediaPaths: []string{video},
+	})
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}

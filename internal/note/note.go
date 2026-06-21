@@ -2,6 +2,7 @@ package note
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,10 +19,11 @@ type Data struct {
 
 // Input 是渲染一篇笔记所需的全部信息。
 type Input struct {
-	Title     string // 抖音原始标题
+	Source    string // douyin | twitter | web（blog 文件名前缀 + 来源行）
+	Title     string // 来源原始标题
 	Author    string
 	SourceURL string
-	VideoID   string // 抖音视频 id（blog 模式做文件名/slug）
+	VideoID   string // 通用 id：视频 id / 推文 id / 网页哈希（blog 模式做文件名/slug）
 	Date      string // obsidian: YYYY-MM-DD；blog: ISO 8601
 	Data      Data
 }
@@ -126,9 +128,27 @@ func renderBlog(in Input, opts Options) string {
 	fmt.Fprintf(&b, "draft: %t\n", opts.Draft)
 	b.WriteString("---\n\n")
 
-	fmt.Fprintf(&b, "> 来源：[抖音 @%s](%s)\n\n", in.Author, in.SourceURL)
+	b.WriteString(sourceLine(in))
 	b.WriteString(strings.TrimSpace(in.Data.Article) + "\n")
 	return b.String()
+}
+
+// sourceLine renders the blog body's attribution line per source kind.
+func sourceLine(in Input) string {
+	switch in.Source {
+	case "twitter":
+		return fmt.Sprintf("> 来源：[X @%s](%s)\n\n", in.Author, in.SourceURL)
+	case "web":
+		label := strings.TrimSpace(in.Title)
+		if label == "" {
+			if u, err := url.Parse(in.SourceURL); err == nil {
+				label = u.Hostname()
+			}
+		}
+		return fmt.Sprintf("> 来源：[%s](%s)\n\n", label, in.SourceURL)
+	default: // douyin
+		return fmt.Sprintf("> 来源：[抖音 @%s](%s)\n\n", in.Author, in.SourceURL)
+	}
 }
 
 // Write 按 opts.Format 渲染并写入 vaultPath/subdir，返回相对 vaultPath 的路径。
@@ -144,7 +164,7 @@ func Write(in Input, opts Options, vaultPath, subdir string) (string, error) {
 		if len(date) >= 10 {
 			date = date[:10]
 		}
-		name = fmt.Sprintf("%s-douyin-%s.md", date, in.VideoID)
+		name = fmt.Sprintf("%s-%s-%s.md", date, in.Source, in.VideoID)
 		content = renderBlog(in, opts)
 	default: // obsidian
 		name = fmt.Sprintf("%s-%s.md", in.Date, safeFilename(in.Title))
@@ -157,14 +177,14 @@ func Write(in Input, opts Options, vaultPath, subdir string) (string, error) {
 	return filepath.Join(subdir, name), nil
 }
 
-// Exists 报告 blog 模式下某 video id 是否已有文章（任意日期）。文件名规则是
-// {date}-douyin-{id}.md，按 *-douyin-{id}.md glob 匹配，用于跨请求/跨天去重。
+// Exists 报告 blog 模式下某来源的某 id 是否已有文章（任意日期）。文件名规则是
+// {date}-{source}-{id}.md，按 *-{source}-{id}.md glob 匹配，用于跨请求/跨天去重。
 // videoID 为空、或 obsidian 模式（文件名不含 id）时返回 false。
-func Exists(vaultPath, subdir, videoID string) bool {
+func Exists(vaultPath, subdir, source, videoID string) bool {
 	if videoID == "" {
 		return false
 	}
-	matches, _ := filepath.Glob(filepath.Join(vaultPath, subdir, "*-douyin-"+videoID+".md"))
+	matches, _ := filepath.Glob(filepath.Join(vaultPath, subdir, "*-"+source+"-"+videoID+".md"))
 	return len(matches) > 0
 }
 

@@ -1,0 +1,18 @@
+- generic [ref=e2]:
+  - generic:
+    - generic:
+      - heading "要查看键盘快捷键，按下问号 查看键盘快捷键" [level=2] [ref=e3]:
+        - generic [ref=e4]: 要查看键盘快捷键，按下问号
+        - link "查看键盘快捷键" [ref=e5] [cursor=pointer]:
+          - /url: /i/keyboard_shortcuts
+      - generic:
+        - generic:
+          - button "Grok" [ref=e6] [cursor=pointer]:
+            - img [ref=e7]
+          - button "聊天" [ref=e10] [cursor=pointer]:
+            - img [ref=e11]
+      - generic [ref=e14]:
+        - banner [ref=e15]
+        - main [ref=e16]:
+          - progressbar "加载中" [ref=e19]:
+            - img [ref=e21]

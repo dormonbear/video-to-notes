@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/http"
 
-	"video-to-notes/internal/douyin"
+	"video-to-notes/internal/source"
 )
 
 // serveAPI 暴露一个 POST /ingest 端点：iOS 快捷指令把复制的抖音分享文本（剪贴板）
@@ -39,16 +39,16 @@ func (a *app) serveAPI(ctx context.Context) {
 			body, _ := io.ReadAll(r.Body)
 			text = string(body)
 		}
-		urls := douyin.ExtractURLs(text)
-		if len(urls) == 0 {
+		refs := source.Classify(text)
+		if len(refs) == 0 {
 			log.Printf("ingest: no link in %d-char input: %.120q", len(text), text)
-			http.Error(w, "no douyin link found", http.StatusBadRequest)
+			http.Error(w, "no supported link found", http.StatusBadRequest)
 			return
 		}
-		log.Printf("ingest: %d link(s) from %d-char input", len(urls), len(text))
+		log.Printf("ingest: %d link(s) from %d-char input", len(refs), len(text))
 		n := 0
-		for _, u := range urls {
-			if err := a.enqueue(ctx, a.cfg.NotifyChatID, u); err != nil {
+		for _, ref := range refs {
+			if err := a.enqueue(ctx, a.cfg.NotifyChatID, ref); err != nil {
 				log.Printf("api enqueue: %v", err)
 				continue
 			}
