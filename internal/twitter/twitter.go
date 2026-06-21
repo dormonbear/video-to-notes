@@ -144,6 +144,10 @@ func Fetch(rawURL, proxy, tmpDir, authToken, ct0 string) (source.Item, error) {
 	}
 	meta.Author = author
 	meta.Title = firstLine(text)
+	if author != "" {
+		// Canonical URL (bookmark-sourced jobs synthesize an /i/status/{id} URL).
+		meta.SourceURL = "https://x.com/" + author + "/status/" + id
+	}
 
 	// X Articles: syndication gives only title+preview. Fetch the full body via the
 	// authenticated GraphQL endpoint; without cookies, skip rather than fabricate.
@@ -204,6 +208,9 @@ func fetchVideo(rawURL, proxy, tmpDir string, meta source.Meta) (source.Item, bo
 	}
 	meta.Author = info.UploaderID
 	meta.Title = info.Title
+	if info.UploaderID != "" {
+		meta.SourceURL = "https://x.com/" + info.UploaderID + "/status/" + meta.ID
+	}
 	return source.Item{Kind: "twitter", Meta: meta, MediaPaths: []string{dst}, MediaKind: "video"}, true
 }
 
